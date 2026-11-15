@@ -5,25 +5,26 @@
 
 const rgba = (r, g, b, a = 255) => `rgba(${r},${g},${b},${a / 255})`;
 
-// Kanagawa Dragon, matching style.css.
+// Tifis palette, matching style.css. The catalog arrow is the periwinkle
+// (the "blue arrow" of the tours) and the selection the pale sky blue.
 const COL = {
-  background: rgba(13, 12, 12), // dragonBlack0
-  frame: rgba(57, 56, 54), // dragonBlack5
-  empty: rgba(24, 22, 22), // dragonBlack3
-  label: rgba(197, 201, 197), // dragonWhite
-  flag: rgba(162, 146, 163, 140), // dragonPink
-  flagLine: rgba(220, 205, 222, 210),
-  catalog: rgba(139, 164, 176, 235), // dragonBlue2
-  catalogFaint: rgba(139, 164, 176, 170),
-  select: rgba(196, 178, 138), // dragonYellow
-  selectFaint: rgba(196, 178, 138, 150),
-  selectPoint: rgba(196, 178, 138, 110),
-  grid: rgba(197, 201, 197, 22),
-  hover: rgba(197, 201, 197, 160),
-  reticle: rgba(197, 201, 197, 90),
+  background: rgba(5, 11, 38), // --bg
+  frame: rgba(27, 42, 102), // --line
+  empty: rgba(9, 21, 64), // --panel (navy)
+  label: rgba(234, 242, 254), // --text
+  flag: rgba(201, 166, 232, 140), // --flag
+  flagLine: rgba(228, 210, 245, 210),
+  catalog: rgba(118, 146, 255, 240), // --accent #7692FF
+  catalogFaint: rgba(118, 146, 255, 175),
+  select: rgba(171, 210, 250), // --soft #ABD2FA
+  selectFaint: rgba(171, 210, 250, 150),
+  selectPoint: rgba(171, 210, 250, 110),
+  grid: rgba(234, 242, 254, 22),
+  hover: rgba(234, 242, 254, 160),
+  reticle: rgba(234, 242, 254, 90),
   // Overlays sit on grayscale sky, where the muted theme colors get lost, so
   // lines, rings and labels get a dark outline.
-  outline: rgba(13, 12, 12, 200),
+  outline: rgba(5, 11, 38, 200),
 };
 
 const PIX_SCALE = 6.15; // arcsec per pixel

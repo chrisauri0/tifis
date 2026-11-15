@@ -1,5 +1,5 @@
 {
-  description = "Development shell for SPHEREx Sky Timeline (Python + numpy)";
+  description = "Development shell for Tifis (Python + numpy)";
 
   # Same input as before, so the existing flake.lock still applies.
   inputs = {

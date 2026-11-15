@@ -8,7 +8,7 @@
 
 import { Viewer } from './viewer.js';
 
-const KINDS = ['ready', 'field', 'loaded', 'frame', 'hover', 'select', 'status', 'image', 'overlay'];
+const KINDS = ['ready', 'field', 'loaded', 'frame', 'hover', 'select', 'analysis', 'status', 'image', 'overlay'];
 
 function sessionId() {
   const b = new Uint8Array(16);

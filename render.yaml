@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=https://render.com/schema/render.yaml.json
+#
+# Despliegue en Render (https://render.com) como Blueprint:
+# New > Blueprint > elige este repositorio. Ver README, sección «Desplegar en Render».
+#
+# Tifis necesita UNA sola instancia que siga corriendo: cada pestaña tiene su
+# motor en la memoria del servidor y recibe eventos por una conexión abierta
+# (SSE). Por eso es un web service y no un sitio estático ni funciones.
+
+services:
+  - type: web
+    name: tifis
+    runtime: python
+    # free se duerme tras 15 min sin visitas y tarda ~1 min en despertar.
+    # Para la presentación cámbialo a starter (no se duerme y tiene más CPU).
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    # El servidor escucha en el puerto de la variable PORT que pone Render.
+    startCommand: python -m spherex
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.4
+      - key: PYTHONUNBUFFERED
+        value: "1"

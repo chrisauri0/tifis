@@ -1,273 +1,766 @@
 <!doctype html>
 <html lang="es">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SPHEREx Sky Timeline</title>
-<meta name="description" content="Reproduce el cielo infrarrojo de SPHEREx como un video: busca estrellas que se mueven y estrellas que cambian.">
-<link rel="stylesheet" href="style.css">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='9' fill='none' stroke='%23c4b28a' stroke-width='2'/%3E%3Ccircle cx='16.5' cy='8' r='2' fill='%23c4b28a'/%3E%3C/svg%3E">
-</head>
-<body data-level="explore">
-<a class="skip" href="#viewer" data-i18n="skip">Saltar al visor</a>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tifis · SPHEREx</title>
+    <meta
+      name="description"
+      content="Reproduce el cielo infrarrojo de SPHEREx como un video: busca estrellas que se mueven y estrellas que cambian."
+    />
+    <link rel="stylesheet" href="style.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='11' fill='%23091540'/%3E%3Ccircle cx='12' cy='12' r='8' fill='none' stroke='%237692FF' stroke-width='2'/%3E%3Ccircle cx='16' cy='8.5' r='2' fill='%23ABD2FA'/%3E%3C/svg%3E"
+    />
+  </head>
+  <body data-level="explore">
+    <script>
+      // Same check as app.js: without a field to open, start on the home screen
+      // so the player and the side panel never flash before it appears.
+      if (
+        !["ra", "target", "embed", "tour"].some((k) =>
+          new URLSearchParams(location.search).has(k),
+        )
+      )
+        document.body.classList.add("home");
+    </script>
+    <a class="skip" href="#viewer" data-i18n="skip">Saltar al visor</a>
 
-<header class="topbar">
-  <a class="brand" href="./" aria-label="SPHEREx Sky Timeline">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".6"/><circle cx="16.5" cy="8" r="1.6" fill="currentColor"/></svg>
-    <span>SPHEREx <b>Sky Timeline</b></span>
-  </a>
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="Tifis">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle
+            cx="12"
+            cy="12"
+            r="9"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+          />
+          <path
+            d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.2"
+            opacity=".6"
+          />
+          <circle cx="16.5" cy="8" r="1.6" fill="currentColor" />
+        </svg>
+        <span><b>Tifis</b> <small>Powered by SPHEREx</small></span>
+      </a>
 
-  <form class="search" id="search" role="search" autocomplete="off">
-    <label for="q" class="sr-only" data-i18n="search.label">Buscar objeto o coordenadas</label>
-    <input id="q" type="search" list="target-names" spellcheck="false" data-i18n-placeholder="search.placeholder" placeholder="Barnard, R Dra o 17h57m48s +04d44m">
-    <datalist id="target-names"></datalist>
-    <button type="submit" data-i18n="search.go">Buscar</button>
-  </form>
+      <form class="search" id="search" role="search" autocomplete="off">
+        <label for="q" class="sr-only" data-i18n="search.label"
+          >Buscar objeto o coordenadas</label
+        >
+        <input
+          id="q"
+          type="search"
+          list="target-names"
+          spellcheck="false"
+          data-i18n-placeholder="search.placeholder"
+          placeholder="Barnard, R Dra o 17h57m48s +04d44m"
+        />
+        <datalist id="target-names"></datalist>
+        <button type="submit" data-i18n="search.go">Buscar</button>
+      </form>
 
-  <nav class="levels" role="radiogroup" data-i18n-aria="levels.label" aria-label="Nivel de detalle">
-    <button role="radio" data-level="explore" aria-checked="true" data-i18n-title="levels.explore.hint"><span data-i18n="levels.explore">Explorar</span></button>
-    <button role="radio" data-level="compare" aria-checked="false" data-i18n-title="levels.compare.hint"><span data-i18n="levels.compare">Comparar</span></button>
-    <button role="radio" data-level="analyze" aria-checked="false" data-i18n-title="levels.analyze.hint"><span data-i18n="levels.analyze">Analizar</span></button>
-  </nav>
+      <nav
+        class="levels"
+        role="radiogroup"
+        data-i18n-aria="levels.label"
+        aria-label="Nivel de detalle"
+      >
+        <button
+          role="radio"
+          data-level="explore"
+          aria-checked="true"
+          data-i18n-title="levels.explore.hint"
+        >
+          <span data-i18n="levels.explore">Explorar</span>
+        </button>
+        <button
+          role="radio"
+          data-level="compare"
+          aria-checked="false"
+          data-i18n-title="levels.compare.hint"
+        >
+          <span data-i18n="levels.compare">Comparar</span>
+        </button>
+        <button
+          role="radio"
+          data-level="analyze"
+          aria-checked="false"
+          data-i18n-title="levels.analyze.hint"
+        >
+          <span data-i18n="levels.analyze">Analizar</span>
+        </button>
+      </nav>
 
-  <div class="actions">
-    <button id="share" class="ghost" data-i18n="share">Compartir</button>
-    <button id="lang" class="ghost" aria-label="English">EN</button>
-    <button id="help" class="ghost icon" data-i18n-aria="help.open" aria-label="Atajos de teclado">?</button>
-  </div>
-</header>
-
-<p class="sim-banner" id="banner" role="note"><b id="banner-title"></b> <span id="banner-body"></span></p>
-
-<main class="layout">
-  <section class="stage" aria-labelledby="field-name">
-    <div class="viewer" id="viewer" tabindex="-1">
-      <canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()" role="img" data-i18n-aria="viewer.label" aria-label="Imagen del cielo"></canvas>
-
-      <div class="hud hud-title">
-        <h1 id="field-name">&nbsp;</h1>
-        <p id="field-coords" class="mono"></p>
+      <div class="actions">
+        <button id="share" class="ghost" data-i18n="share">Compartir</button>
+        <button id="lang" class="ghost" aria-label="English">EN</button>
+        <button
+          id="help"
+          class="ghost icon"
+          data-i18n-aria="help.open"
+          aria-label="Atajos de teclado"
+        >
+          ?
+        </button>
       </div>
-      <div class="hud hud-frame" aria-live="polite">
-        <span class="chip" id="frame-channel"></span>
-        <span id="frame-label"></span>
-      </div>
-      <div class="hud hud-zoom" role="group" data-i18n-aria="zoom.label" aria-label="Zoom">
-        <button id="zoom-in" class="icon" data-i18n-aria="zoom.in" aria-label="Acercar">+</button>
-        <button id="zoom-out" class="icon" data-i18n-aria="zoom.out" aria-label="Alejar">−</button>
-        <button id="zoom-fit" class="icon" data-i18n-aria="zoom.fit" aria-label="Ajustar">⤢</button>
-      </div>
-      <div class="hud hud-loading" id="loading" hidden><span class="spinner" aria-hidden="true"></span><span data-i18n="loading">Cargando imagen…</span></div>
-      <div class="hud hud-missing" id="missing" hidden data-i18n="missing">Esta visita no tiene imagen en este canal</div>
-      <div class="hud hud-archive" id="archive-status" role="status" aria-live="polite" hidden>
-        <span class="spinner" id="archive-spinner" aria-hidden="true"></span>
-        <div><p id="archive-text"></p><p class="muted" id="archive-detail"></p></div>
-        <button id="archive-sim" class="link" data-i18n="archive.useSim" hidden>Ver la simulación</button>
-      </div>
-      <div class="hud hud-readout mono" id="readout" aria-hidden="true"></div>
-      <div class="tooltip" id="tip" role="tooltip" hidden></div>
-      <div class="hud hud-selection" id="sel-chip" hidden>
-        <span data-i18n="sel.chip">Fuente seleccionada</span>
-        <button id="sel-analyze" class="link" data-i18n="sel.analyze">Ver espectro →</button>
-        <button id="sel-clear" class="icon small" data-i18n-aria="sel.clear" aria-label="Quitar selección">×</button>
-      </div>
-      <a class="embed-open" id="embed-open" target="_blank" rel="noopener" data-i18n="embed.open">Abrir en SPHEREx Sky Timeline ↗</a>
-    </div>
+    </header>
 
-    <section class="welcome" id="welcome" aria-labelledby="welcome-title" hidden>
-      <div class="welcome-inner">
-        <p class="eyebrow" data-i18n="welcome.eyebrow">Planet X &amp; SPHEREx · Space Apps 2026</p>
-        <h2 id="welcome-title" data-i18n="welcome.title">El cielo infrarrojo, como un video</h2>
-        <p class="lede" data-i18n="welcome.lede">SPHEREx fotografía todo el cielo cada seis meses en 102 colores. Dale a play y busca lo que se mueve o lo que cambia.</p>
+    <p class="sim-banner" id="banner" role="note">
+      <b id="banner-title"></b> <span id="banner-body"></span>
+    </p>
 
-        <div class="doors" role="tablist" data-i18n-aria="doors.label" aria-label="Elige cómo empezar">
-          <button class="door" role="tab" id="tab-learn" data-door="learn" aria-controls="door-learn" aria-selected="true">
-            <span class="door-icon" aria-hidden="true">✦</span>
-            <span class="door-who" data-i18n="door.learn.who">Para empezar</span>
-            <strong data-i18n="door.learn.title">Aprende</strong>
-            <span data-i18n="door.learn.text">Recorridos guiados por objetos famosos y lo que nos enseñan.</span>
-          </button>
-          <button class="door" role="tab" id="tab-discover" data-door="discover" aria-controls="door-discover" aria-selected="false" tabindex="-1">
-            <span class="door-icon" aria-hidden="true">◎</span>
-            <span class="door-who" data-i18n="door.discover.who">Nivel medio</span>
-            <strong data-i18n="door.discover.title">Descubre</strong>
-            <span data-i18n="door.discover.text">Elige entre decenas de objetos, encuentra lo que se mueve y lee su espectro.</span>
-          </button>
-          <button class="door" role="tab" id="tab-analyze" data-door="analyze" aria-controls="door-analyze" aria-selected="false" tabindex="-1">
-            <span class="door-icon" aria-hidden="true">∑</span>
-            <span class="door-who" data-i18n="door.analyze.who">Para científicos</span>
-            <strong data-i18n="door.analyze.title">Analiza</strong>
-            <span data-i18n="door.analyze.text">Espectros con errores, movimiento propio, banderas, metadatos y descarga de medidas.</span>
-          </button>
-        </div>
+    <main class="layout">
+      <section class="stage" aria-labelledby="field-name">
+        <div class="viewer" id="viewer" tabindex="-1">
+          <canvas
+            id="canvas"
+            tabindex="-1"
+            oncontextmenu="event.preventDefault()"
+            role="img"
+            data-i18n-aria="viewer.label"
+            aria-label="Imagen del cielo"
+          ></canvas>
 
-        <div class="door-body" id="door-learn" role="tabpanel" aria-labelledby="tab-learn">
-          <h3 data-i18n="learn.tours">Recorridos guiados</h3>
-          <ul class="tours" id="tours"></ul>
-          <h3 data-i18n="welcome.start">O empieza por un objeto</h3>
-          <ul class="cards" id="cards"></ul>
-        </div>
-        <div class="door-body" id="door-discover" role="tabpanel" aria-labelledby="tab-discover" hidden>
-          <div class="challenge-card">
-            <div>
-              <h3 data-i18n="challenge.title">Reto: encuentra lo que se mueve</h3>
-              <p data-i18n="challenge.pitch">Te damos un campo con una estrella veloz escondida. Búscala en Diferencia, haz clic en ella y te decimos si acertaste.</p>
-            </div>
-            <button id="challenge-start" class="primary" data-i18n="challenge.start">Empezar el reto</button>
+          <div class="hud hud-title">
+            <h1 id="field-name">&nbsp;</h1>
+            <p id="field-coords" class="mono"></p>
           </div>
-          <div id="categories"></div>
+          <div class="hud hud-frame" aria-live="polite">
+            <span class="chip" id="frame-channel"></span>
+            <span id="frame-label"></span>
+          </div>
+          <div
+            class="hud hud-zoom"
+            role="group"
+            data-i18n-aria="zoom.label"
+            aria-label="Zoom"
+          >
+            <button
+              id="zoom-in"
+              class="icon"
+              data-i18n-aria="zoom.in"
+              aria-label="Acercar"
+            >
+              +
+            </button>
+            <button
+              id="zoom-out"
+              class="icon"
+              data-i18n-aria="zoom.out"
+              aria-label="Alejar"
+            >
+              −
+            </button>
+            <button
+              id="zoom-fit"
+              class="icon"
+              data-i18n-aria="zoom.fit"
+              aria-label="Ajustar"
+            >
+              ⤢
+            </button>
+          </div>
+          <div class="hud hud-loading" id="loading" hidden>
+            <span class="spinner" aria-hidden="true"></span
+            ><span data-i18n="loading">Cargando imagen…</span>
+          </div>
+          <div class="hud hud-missing" id="missing" hidden data-i18n="missing">
+            Esta visita no tiene imagen en este canal
+          </div>
+          <div
+            class="hud hud-archive"
+            id="archive-status"
+            role="status"
+            aria-live="polite"
+            hidden
+          >
+            <span
+              class="spinner"
+              id="archive-spinner"
+              aria-hidden="true"
+            ></span>
+            <div>
+              <p id="archive-text"></p>
+              <p class="muted" id="archive-detail"></p>
+            </div>
+            <button
+              id="archive-sim"
+              class="link"
+              data-i18n="archive.useSim"
+              hidden
+            >
+              Ver la simulación
+            </button>
+          </div>
+          <div
+            class="hud hud-readout mono"
+            id="readout"
+            aria-hidden="true"
+          ></div>
+          <div class="tooltip" id="tip" role="tooltip" hidden></div>
+          <div class="hud hud-selection" id="sel-chip" hidden>
+            <span data-i18n="sel.chip">Fuente seleccionada</span>
+            <button id="sel-analyze" class="link" data-i18n="sel.analyze">
+              Ver espectro →
+            </button>
+            <button
+              id="sel-clear"
+              class="icon small"
+              data-i18n-aria="sel.clear"
+              aria-label="Quitar selección"
+            >
+              ×
+            </button>
+          </div>
+          <a
+            class="embed-open"
+            id="embed-open"
+            target="_blank"
+            rel="noopener"
+            data-i18n="embed.open"
+            >Abrir en Tifis ↗</a
+          >
         </div>
-        <div class="door-body" id="door-analyze" role="tabpanel" aria-labelledby="tab-analyze" hidden>
-          <p class="hint" data-i18n="analyze.intro">Escribe un nombre o coordenadas en el buscador, o elige un objeto. Todo se abre con espectro, curva de luz, banderas y metadatos.</p>
-          <table class="objects">
-            <thead><tr><th data-i18n="analyze.col.object">Objeto</th><th data-i18n="analyze.col.type">Tipo</th><th data-i18n="analyze.col.channel">Canal sugerido</th><th data-i18n="analyze.col.mode">Modo</th><th data-i18n="analyze.col.fov">Campo</th></tr></thead>
-            <tbody id="objects-table"></tbody>
-          </table>
+
+        <section
+          class="welcome"
+          id="welcome"
+          aria-labelledby="welcome-title"
+          hidden
+        >
+          <div class="welcome-inner">
+            <p class="eyebrow" data-i18n="welcome.eyebrow">
+              Planet X &amp; SPHEREx · Space Apps 2026
+            </p>
+            <h2 id="welcome-title" data-i18n="welcome.title">
+              El cielo infrarrojo, como un video
+            </h2>
+            <p class="lede" data-i18n="welcome.lede">
+              SPHEREx fotografía todo el cielo cada seis meses en 102 colores.
+              Dale a play y busca lo que se mueve o lo que cambia.
+            </p>
+            <p class="motto" data-i18n="welcome.motto">
+              Tifis era el timonel de los Argonautas: se guiaba por las
+              estrellas.
+            </p>
+            <ol class="how" aria-labelledby="how-title">
+              <li id="how-title" class="how-title" data-i18n="how.title">
+                Cómo funciona
+              </li>
+              <li>
+                <b>1</b
+                ><span
+                  ><strong data-i18n="how.1.title">Elige qué ver</strong
+                  ><span data-i18n="how.1.text"
+                    >Un recorrido guiado, una misión o cualquier objeto.</span
+                  ></span
+                >
+              </li>
+              <li>
+                <b>2</b
+                ><span
+                  ><strong data-i18n="how.2.title">Dale play</strong
+                  ><span data-i18n="how.2.text"
+                    >Cada imagen es una visita de SPHEREx; juntas forman un
+                    video de meses.</span
+                  ></span
+                >
+              </li>
+              <li>
+                <b>3</b
+                ><span
+                  ><strong data-i18n="how.3.title">Haz clic en un objeto</strong
+                  ><span data-i18n="how.3.text"
+                    >Mides su brillo en cada color y en cada fecha.</span
+                  ></span
+                >
+              </li>
+            </ol>
+
+            <div
+              class="doors"
+              role="tablist"
+              data-i18n-aria="doors.label"
+              aria-label="Elige cómo empezar"
+            >
+              <button
+                class="door"
+                role="tab"
+                id="tab-learn"
+                data-door="learn"
+                aria-controls="door-learn"
+                aria-selected="true"
+              >
+                <span class="door-icon" aria-hidden="true">✦</span>
+                <span class="door-who" data-i18n="door.learn.who"
+                  >Para empezar</span
+                >
+                <strong data-i18n="door.learn.title">Aprende</strong>
+                <span data-i18n="door.learn.text"
+                  >Recorridos guiados por objetos famosos y lo que nos
+                  enseñan.</span
+                >
+              </button>
+              <button
+                class="door"
+                role="tab"
+                id="tab-discover"
+                data-door="discover"
+                aria-controls="door-discover"
+                aria-selected="false"
+                tabindex="-1"
+              >
+                <span class="door-icon" aria-hidden="true">◎</span>
+                <span class="door-who" data-i18n="door.discover.who"
+                  >Nivel medio</span
+                >
+                <strong data-i18n="door.discover.title">Descubre</strong>
+                <span data-i18n="door.discover.text"
+                  >Elige entre decenas de objetos, encuentra lo que se mueve y
+                  lee su espectro.</span
+                >
+              </button>
+              <button
+                class="door"
+                role="tab"
+                id="tab-analyze"
+                data-door="analyze"
+                aria-controls="door-analyze"
+                aria-selected="false"
+                tabindex="-1"
+              >
+                <span class="door-icon" aria-hidden="true">∑</span>
+                <span class="door-who" data-i18n="door.analyze.who"
+                  >Para científicos</span
+                >
+                <strong data-i18n="door.analyze.title">Analiza</strong>
+                <span data-i18n="door.analyze.text"
+                  >Espectros con errores, movimiento propio, banderas, metadatos
+                  y descarga de medidas.</span
+                >
+              </button>
+            </div>
+
+            <div
+              class="door-body"
+              id="door-learn"
+              role="tabpanel"
+              aria-labelledby="tab-learn"
+            >
+              <h3 data-i18n="learn.tours">Recorridos guiados</h3>
+              <ul class="tours" id="tours"></ul>
+              <h3 data-i18n="welcome.start">O empieza por un objeto</h3>
+              <ul class="cards" id="cards"></ul>
+            </div>
+            <div
+              class="door-body"
+              id="door-discover"
+              role="tabpanel"
+              aria-labelledby="tab-discover"
+              hidden
+            >
+              <div class="missions-head">
+                <h3 data-i18n="missions.title">Misiones</h3>
+                <p class="score" id="score" aria-live="polite"></p>
+              </div>
+              <p class="hint" data-i18n="missions.pitch">
+                Te damos un campo misterioso: mides, decides y te decimos si
+                acertaste.
+              </p>
+              <ul class="missions" id="missions"></ul>
+              <h3 data-i18n="discover.free">
+                O explora libre por tipo de objeto
+              </h3>
+              <div id="categories"></div>
+            </div>
+            <div
+              class="door-body"
+              id="door-analyze"
+              role="tabpanel"
+              aria-labelledby="tab-analyze"
+              hidden
+            >
+              <p class="hint" data-i18n="analyze.intro">
+                Escribe un nombre o coordenadas en el buscador, o elige un
+                objeto. Todo se abre con espectro, curva de luz, banderas y
+                metadatos.
+              </p>
+              <table class="objects">
+                <thead>
+                  <tr>
+                    <th data-i18n="analyze.col.object">Objeto</th>
+                    <th data-i18n="analyze.col.type">Tipo</th>
+                    <th data-i18n="analyze.col.channel">Canal sugerido</th>
+                    <th data-i18n="analyze.col.mode">Modo</th>
+                    <th data-i18n="analyze.col.fov">Campo</th>
+                  </tr>
+                </thead>
+                <tbody id="objects-table"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <aside class="side" data-i18n-aria="side.label" aria-label="Controles">
+        <section
+          class="panel guide"
+          id="tour"
+          aria-labelledby="tour-title"
+          aria-live="polite"
+          hidden
+        >
+          <p class="eyebrow" id="tour-name"></p>
+          <ol class="progress" id="tour-progress" aria-hidden="true"></ol>
+          <h2 id="tour-title"></h2>
+          <p id="tour-text"></p>
+          <h3 class="tasks-title" id="tour-tasks-title" data-i18n="tasks.title">
+            Prueba esto
+          </h3>
+          <ul class="tasks" id="tour-tasks"></ul>
+          <p class="takeaway" id="tour-takeaway" hidden></p>
+          <div class="quiz" id="tour-quiz" hidden></div>
+          <div class="tour-nav">
+            <button id="tour-prev" data-i18n="tour.prev">← Anterior</button>
+            <span class="muted" id="tour-count"></span>
+            <button id="tour-next" class="primary" data-i18n="tour.next">
+              Siguiente →
+            </button>
+          </div>
+          <button id="tour-exit" class="link" data-i18n="tour.exit">
+            Salir del recorrido
+          </button>
+        </section>
+
+        <section
+          class="panel guide"
+          id="challenge"
+          aria-labelledby="challenge-title"
+          aria-live="polite"
+          hidden
+        >
+          <p class="eyebrow" data-i18n="challenge.eyebrow">Misión</p>
+          <h2 id="challenge-title"></h2>
+          <p id="challenge-text"></p>
+          <h3 class="tasks-title" data-i18n="tasks.title">Prueba esto</h3>
+          <ul class="tasks" id="challenge-tasks"></ul>
+          <div class="quiz" id="challenge-question" hidden></div>
+          <p id="challenge-result" class="result" hidden></p>
+          <div class="tour-nav">
+            <button id="challenge-hint" data-i18n="challenge.hint">
+              Pista
+            </button>
+            <button id="challenge-giveup" data-i18n="challenge.giveup">
+              Me rindo
+            </button>
+            <button
+              id="challenge-next"
+              class="primary"
+              data-i18n="challenge.next"
+            >
+              Otro campo
+            </button>
+          </div>
+          <button id="challenge-exit" class="link" data-i18n="challenge.exit">
+            Salir de la misión
+          </button>
+        </section>
+
+        <section
+          class="panel now"
+          id="now"
+          aria-labelledby="h-now"
+          aria-live="polite"
+        >
+          <h2 id="h-now" data-i18n="now.title">Qué estás viendo</h2>
+          <p class="now-what" id="now-what"></p>
+          <dl class="now-facts" id="now-facts"></dl>
+          <p class="now-next" id="now-next" hidden></p>
+        </section>
+
+        <section class="panel" aria-labelledby="h-channels">
+          <h2 id="h-channels" data-i18n="channels.title">Canales</h2>
+          <p class="hint" data-i18n="channels.hint">
+            Cada canal es un detector: un rango de colores infrarrojos.
+          </p>
+          <div
+            class="channels"
+            id="channels"
+            role="radiogroup"
+            aria-labelledby="h-channels"
+          ></div>
+          <label class="toggle"
+            ><input type="checkbox" id="tint" />
+            <span data-i18n="channels.tint"
+              >Teñir con el color del canal</span
+            ></label
+          >
+        </section>
+
+        <section
+          class="panel"
+          data-min-level="compare"
+          aria-labelledby="h-mode"
+        >
+          <h2 id="h-mode" data-i18n="mode.title">Comparar épocas</h2>
+          <div
+            class="segmented"
+            role="radiogroup"
+            aria-labelledby="h-mode"
+            id="modes"
+          >
+            <button role="radio" data-mode="epoch" aria-checked="true">
+              <span data-i18n="mode.epoch">Época</span><kbd>E</kbd>
+            </button>
+            <button role="radio" data-mode="diff" aria-checked="false">
+              <span data-i18n="mode.diff">Diferencia</span><kbd>D</kbd>
+            </button>
+            <button role="radio" data-mode="sum" aria-checked="false">
+              <span data-i18n="mode.sum">Suma</span><kbd>S</kbd>
+            </button>
+          </div>
+          <p class="hint" id="mode-hint"></p>
+          <div class="ref-row" id="ref-row">
+            <span id="ref-label"></span>
+            <button class="link" id="ref-set" data-i18n="ref.set">
+              Fijar aquí (A)
+            </button>
+            <button class="link" id="ref-auto" data-i18n="ref.auto">
+              Automática
+            </button>
+          </div>
+          <label class="toggle"
+            ><input type="checkbox" id="catalog" />
+            <span data-i18n="layers.catalog"
+              >Capa Gaia/WISE: posición en 2016 y flecha de movimiento</span
+            >
+            <kbd>C</kbd></label
+          >
+          <p class="hint" id="catalog-status" aria-live="polite"></p>
+        </section>
+
+        <section
+          class="panel"
+          data-min-level="compare"
+          aria-labelledby="h-spectrum"
+        >
+          <h2 id="h-spectrum" data-i18n="spectrum.title">Espectro</h2>
+          <div id="spectrum-empty" class="empty" data-i18n="spectrum.empty">
+            Haz clic en una fuente del visor para medir su brillo en cada color.
+          </div>
+          <div id="spectrum-box" hidden>
+            <svg
+              id="spectrum"
+              class="plot"
+              role="img"
+              data-i18n-aria="spectrum.label"
+              aria-label="Espectro"
+            ></svg>
+            <div class="plot-legend">
+              <span class="hint" data-i18n="spectrum.legend"
+                >Hueco: apertura con píxeles marcados</span
+              ><label class="toggle small"
+                ><input type="checkbox" id="spec-log" checked />
+                <span data-i18n="spectrum.log">Escala logarítmica</span></label
+              >
+            </div>
+            <section class="interp" id="interp" aria-labelledby="h-interp" aria-live="polite">
+              <h3 id="h-interp" data-i18n="interp.title">Qué dice el espectro</h3>
+              <div id="interp-body"></div>
+            </section>
+            <dl class="facts" id="motion"></dl>
+            <button
+              id="export-csv"
+              class="link"
+              data-min-level="analyze"
+              data-i18n="export.csv"
+            >
+              Descargar medidas (CSV)
+            </button>
+            <button
+              id="export-analysis"
+              class="link"
+              data-min-level="analyze"
+              data-i18n="export.analysis"
+            >
+              Descargar análisis (JSON)
+            </button>
+          </div>
+          <details class="bands-box" id="bands-box">
+            <summary data-i18n="bands.title">
+              ¿Qué significan las bandas?
+            </summary>
+            <ul class="bands" id="bands"></ul>
+          </details>
+        </section>
+
+        <section
+          class="panel"
+          data-min-level="analyze"
+          aria-labelledby="h-meta"
+        >
+          <h2 id="h-meta" data-i18n="meta.title">Imagen actual</h2>
+          <label class="toggle"
+            ><input type="checkbox" id="flags" />
+            <span data-i18n="layers.flags">Mostrar píxeles con banderas</span>
+            <kbd>F</kbd></label
+          >
+          <dl class="facts mono" id="meta"></dl>
+        </section>
+
+        <section class="panel" aria-labelledby="h-fov">
+          <h2 id="h-fov" data-i18n="fov.title">Campo de visión</h2>
+          <div class="fov-row">
+            <input
+              type="range"
+              id="fov"
+              min="4"
+              max="12"
+              step="1"
+              value="6"
+              aria-describedby="fov-cost"
+            />
+            <output id="fov-value" for="fov">6′</output>
+          </div>
+          <p class="hint" id="fov-cost"></p>
+        </section>
+      </aside>
+
+      <footer
+        class="transport"
+        aria-label="Línea de tiempo"
+        data-i18n-aria="timeline.label"
+      >
+        <div class="transport-controls">
+          <button
+            id="prev"
+            class="icon"
+            data-i18n-aria="play.prev"
+            aria-label="Anterior"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 5h2v14H6zM20 5v14L9 12z" fill="currentColor" />
+            </svg>
+          </button>
+          <button
+            id="play"
+            class="play"
+            aria-pressed="false"
+            data-i18n-aria="play.play"
+            aria-label="Reproducir"
+          >
+            <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M7 4v16l13-8z" fill="currentColor" />
+            </svg>
+            <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 4h4v16H6zM14 4h4v16h-4z" fill="currentColor" />
+            </svg>
+          </button>
+          <button
+            id="next"
+            class="icon"
+            data-i18n-aria="play.next"
+            aria-label="Siguiente"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M16 5h2v14h-2zM4 5v14l11-7z" fill="currentColor" />
+            </svg>
+          </button>
+          <label class="select"
+            ><span class="sr-only" data-i18n="play.speed">Velocidad</span>
+            <select id="speed">
+              <option value="0.5">0.5×</option>
+              <option value="1" selected>1×</option>
+              <option value="2">2×</option>
+              <option value="4">4×</option>
+            </select>
+          </label>
+          <label class="select"
+            ><span class="sr-only" data-i18n="play.step">Paso</span>
+            <select id="step">
+              <option value="season" data-i18n="play.step.season">
+                Una por temporada
+              </option>
+              <option value="visit" data-i18n="play.step.visit">
+                Cada visita
+              </option>
+            </select>
+          </label>
         </div>
-      </div>
-    </section>
-  </section>
+        <div class="timeline-wrap">
+          <div
+            class="timeline"
+            id="timeline"
+            role="slider"
+            tabindex="0"
+            aria-valuemin="0"
+            aria-valuemax="0"
+            aria-valuenow="0"
+            data-i18n-aria="timeline.slider"
+            aria-label="Visita"
+          >
+            <svg id="timeline-svg" aria-hidden="true"></svg>
+          </div>
+          <div class="timeline-status">
+            <span id="date-label" class="mono"></span>
+            <span class="lc-legend" id="lc-legend" hidden
+              ><span aria-hidden="true">●</span>
+              <span data-i18n="timeline.lightcurve">curva de luz</span></span
+            >
+            <span id="load-label" class="muted"></span>
+          </div>
+        </div>
+      </footer>
+    </main>
 
-  <aside class="side" data-i18n-aria="side.label" aria-label="Controles">
-    <section class="panel guide" id="tour" aria-labelledby="tour-title" aria-live="polite" hidden>
-      <p class="eyebrow" id="tour-name"></p>
-      <h2 id="tour-title"></h2>
-      <p id="tour-text"></p>
-      <div class="tour-actions" id="tour-actions"></div>
-      <div class="tour-nav">
-        <button id="tour-prev" data-i18n="tour.prev">← Anterior</button>
-        <span class="muted" id="tour-count"></span>
-        <button id="tour-next" class="primary" data-i18n="tour.next">Siguiente →</button>
-      </div>
-      <button id="tour-exit" class="link" data-i18n="tour.exit">Salir del recorrido</button>
-    </section>
+    <dialog id="help-dialog" aria-labelledby="help-title">
+      <h2 id="help-title" data-i18n="help.title">Atajos de teclado</h2>
+      <dl class="keys">
+        <dt><kbd>Espacio</kbd></dt>
+        <dd data-i18n="help.play">Reproducir / pausar</dd>
+        <dt><kbd>←</kbd> <kbd>→</kbd></dt>
+        <dd data-i18n="help.step">
+          Visita anterior / siguiente (Mayús: temporada)
+        </dd>
+        <dt><kbd>1</kbd>–<kbd>6</kbd></dt>
+        <dd data-i18n="help.channel">Elegir canal</dd>
+        <dt><kbd>E</kbd> <kbd>D</kbd> <kbd>S</kbd></dt>
+        <dd data-i18n="help.mode">Época, Diferencia, Suma</dd>
+        <dt><kbd>A</kbd></dt>
+        <dd data-i18n="help.ref">
+          Fijar la época de referencia en la visita actual
+        </dd>
+        <dt><kbd>C</kbd> <kbd>F</kbd></dt>
+        <dd data-i18n="help.layers">Capa de catálogo, banderas</dd>
+        <dt><kbd>+</kbd> <kbd>−</kbd> <kbd>0</kbd></dt>
+        <dd data-i18n="help.zoom">Acercar, alejar, ajustar</dd>
+        <dt><kbd>[</kbd> <kbd>]</kbd></dt>
+        <dd data-i18n="help.speed">Velocidad</dd>
+        <dt><kbd>/</kbd></dt>
+        <dd data-i18n="help.search">Ir al buscador</dd>
+        <dt><kbd>Esc</kbd></dt>
+        <dd data-i18n="help.esc">Quitar selección</dd>
+      </dl>
+      <h3 data-i18n="help.honesty.title">Leer la imagen con honestidad</h3>
+      <p data-i18n="help.honesty">
+        Cada cuadrado es un píxel real de SPHEREx de 6.15″. Las estrellas más
+        rápidas avanzan menos de dos píxeles al año: usa Diferencia y la capa de
+        catálogo antes de creer que viste algo moverse.
+      </p>
+      <form method="dialog">
+        <button data-i18n="help.close">Cerrar</button>
+      </form>
+    </dialog>
 
-    <section class="panel guide" id="challenge" aria-labelledby="challenge-title" aria-live="polite" hidden>
-      <p class="eyebrow" data-i18n="challenge.eyebrow">Reto</p>
-      <h2 id="challenge-title" data-i18n="challenge.title">Reto: encuentra lo que se mueve</h2>
-      <p id="challenge-text"></p>
-      <p id="challenge-result" class="result" hidden></p>
-      <div class="tour-nav">
-        <button id="challenge-hint" data-i18n="challenge.hint">Pista</button>
-        <button id="challenge-giveup" data-i18n="challenge.giveup">Me rindo</button>
-        <button id="challenge-next" class="primary" data-i18n="challenge.next">Otro campo</button>
-      </div>
-      <button id="challenge-exit" class="link" data-i18n="challenge.exit">Salir del reto</button>
-    </section>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-    <section class="panel" aria-labelledby="h-channels">
-      <h2 id="h-channels" data-i18n="channels.title">Canales</h2>
-      <p class="hint" data-i18n="channels.hint">Cada canal es un detector: un rango de colores infrarrojos.</p>
-      <div class="channels" id="channels" role="radiogroup" aria-labelledby="h-channels"></div>
-      <label class="toggle"><input type="checkbox" id="tint"> <span data-i18n="channels.tint">Teñir con el color del canal</span></label>
-    </section>
-
-    <section class="panel" data-min-level="compare" aria-labelledby="h-mode">
-      <h2 id="h-mode" data-i18n="mode.title">Comparar épocas</h2>
-      <div class="segmented" role="radiogroup" aria-labelledby="h-mode" id="modes">
-        <button role="radio" data-mode="epoch" aria-checked="true"><span data-i18n="mode.epoch">Época</span><kbd>E</kbd></button>
-        <button role="radio" data-mode="diff" aria-checked="false"><span data-i18n="mode.diff">Diferencia</span><kbd>D</kbd></button>
-        <button role="radio" data-mode="sum" aria-checked="false"><span data-i18n="mode.sum">Suma</span><kbd>S</kbd></button>
-      </div>
-      <p class="hint" id="mode-hint"></p>
-      <div class="ref-row" id="ref-row">
-        <span id="ref-label"></span>
-        <button class="link" id="ref-set" data-i18n="ref.set">Fijar aquí (A)</button>
-        <button class="link" id="ref-auto" data-i18n="ref.auto">Automática</button>
-      </div>
-      <label class="toggle"><input type="checkbox" id="catalog"> <span data-i18n="layers.catalog">Capa Gaia/WISE: posición en 2016 y flecha de movimiento</span> <kbd>C</kbd></label>
-      <p class="hint" id="catalog-status" aria-live="polite"></p>
-    </section>
-
-    <section class="panel" data-min-level="compare" aria-labelledby="h-spectrum">
-      <h2 id="h-spectrum" data-i18n="spectrum.title">Espectro</h2>
-      <div id="spectrum-empty" class="empty" data-i18n="spectrum.empty">Haz clic en una fuente del visor para medir su brillo en cada color.</div>
-      <div id="spectrum-box" hidden>
-        <svg id="spectrum" class="plot" role="img" data-i18n-aria="spectrum.label" aria-label="Espectro"></svg>
-        <div class="plot-legend"><span class="hint" data-i18n="spectrum.legend">Hueco: apertura con píxeles marcados</span><label class="toggle small"><input type="checkbox" id="spec-log" checked> <span data-i18n="spectrum.log">Escala logarítmica</span></label></div>
-        <dl class="facts" id="motion"></dl>
-        <button id="export-csv" class="link" data-min-level="analyze" data-i18n="export.csv">Descargar medidas (CSV)</button>
-      </div>
-      <details class="bands-box" id="bands-box">
-        <summary data-i18n="bands.title">¿Qué significan las bandas?</summary>
-        <ul class="bands" id="bands"></ul>
-      </details>
-    </section>
-
-    <section class="panel" data-min-level="analyze" aria-labelledby="h-meta">
-      <h2 id="h-meta" data-i18n="meta.title">Imagen actual</h2>
-      <label class="toggle"><input type="checkbox" id="flags"> <span data-i18n="layers.flags">Mostrar píxeles con banderas</span> <kbd>F</kbd></label>
-      <dl class="facts mono" id="meta"></dl>
-    </section>
-
-    <section class="panel" aria-labelledby="h-fov">
-      <h2 id="h-fov" data-i18n="fov.title">Campo de visión</h2>
-      <div class="fov-row">
-        <input type="range" id="fov" min="4" max="12" step="1" value="6" aria-describedby="fov-cost">
-        <output id="fov-value" for="fov">6′</output>
-      </div>
-      <p class="hint" id="fov-cost"></p>
-    </section>
-  </aside>
-
-  <footer class="transport" aria-label="Línea de tiempo" data-i18n-aria="timeline.label">
-    <div class="transport-controls">
-      <button id="prev" class="icon" data-i18n-aria="play.prev" aria-label="Anterior">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h2v14H6zM20 5v14L9 12z" fill="currentColor"/></svg>
-      </button>
-      <button id="play" class="play" aria-pressed="false" data-i18n-aria="play.play" aria-label="Reproducir">
-        <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v16l13-8z" fill="currentColor"/></svg>
-        <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h4v16H6zM14 4h4v16h-4z" fill="currentColor"/></svg>
-      </button>
-      <button id="next" class="icon" data-i18n-aria="play.next" aria-label="Siguiente">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 5h2v14h-2zM4 5v14l11-7z" fill="currentColor"/></svg>
-      </button>
-      <label class="select"><span class="sr-only" data-i18n="play.speed">Velocidad</span>
-        <select id="speed">
-          <option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option>
-        </select>
-      </label>
-      <label class="select"><span class="sr-only" data-i18n="play.step">Paso</span>
-        <select id="step">
-          <option value="season" data-i18n="play.step.season">Una por temporada</option>
-          <option value="visit" data-i18n="play.step.visit">Cada visita</option>
-        </select>
-      </label>
-    </div>
-    <div class="timeline-wrap">
-      <div class="timeline" id="timeline" role="slider" tabindex="0" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" data-i18n-aria="timeline.slider" aria-label="Visita">
-        <svg id="timeline-svg" aria-hidden="true"></svg>
-      </div>
-      <div class="timeline-status">
-        <span id="date-label" class="mono"></span>
-        <span class="lc-legend" id="lc-legend" hidden><span aria-hidden="true">●</span> <span data-i18n="timeline.lightcurve">curva de luz</span></span>
-        <span id="load-label" class="muted"></span>
-      </div>
-    </div>
-  </footer>
-</main>
-
-<dialog id="help-dialog" aria-labelledby="help-title">
-  <h2 id="help-title" data-i18n="help.title">Atajos de teclado</h2>
-  <dl class="keys">
-    <dt><kbd>Espacio</kbd></dt><dd data-i18n="help.play">Reproducir / pausar</dd>
-    <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd data-i18n="help.step">Visita anterior / siguiente (Mayús: temporada)</dd>
-    <dt><kbd>1</kbd>–<kbd>6</kbd></dt><dd data-i18n="help.channel">Elegir canal</dd>
-    <dt><kbd>E</kbd> <kbd>D</kbd> <kbd>S</kbd></dt><dd data-i18n="help.mode">Época, Diferencia, Suma</dd>
-    <dt><kbd>A</kbd></dt><dd data-i18n="help.ref">Fijar la época de referencia en la visita actual</dd>
-    <dt><kbd>C</kbd> <kbd>F</kbd></dt><dd data-i18n="help.layers">Capa de catálogo, banderas</dd>
-    <dt><kbd>+</kbd> <kbd>−</kbd> <kbd>0</kbd></dt><dd data-i18n="help.zoom">Acercar, alejar, ajustar</dd>
-    <dt><kbd>[</kbd> <kbd>]</kbd></dt><dd data-i18n="help.speed">Velocidad</dd>
-    <dt><kbd>/</kbd></dt><dd data-i18n="help.search">Ir al buscador</dd>
-    <dt><kbd>Esc</kbd></dt><dd data-i18n="help.esc">Quitar selección</dd>
-  </dl>
-  <h3 data-i18n="help.honesty.title">Leer la imagen con honestidad</h3>
-  <p data-i18n="help.honesty">Cada cuadrado es un píxel real de SPHEREx de 6.15″. Las estrellas más rápidas avanzan menos de dos píxeles al año: usa Diferencia y la capa de catálogo antes de creer que viste algo moverse.</p>
-  <form method="dialog"><button data-i18n="help.close">Cerrar</button></form>
-</dialog>
-
-<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
-
-<script type="module" src="app.js"></script>
-</body>
+    <script type="module" src="app.js"></script>
+  </body>
 </html>

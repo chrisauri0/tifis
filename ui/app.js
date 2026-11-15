@@ -1,7 +1,7 @@
 import { start } from './engine.js';
 import { t, setLang, getLang, detectLang } from './i18n.js';
 import { parseCoords, formatRA, formatDec } from './coords.js';
-import { OBJECTS, TOURS, BANDS, CATEGORIES, findObject } from './catalog.js';
+import { OBJECTS, TOURS, MISSIONS, BANDS, PSEUDO, CATEGORIES, findObject, findMission, findBand, featuresReady } from './catalog.js';
 
 // Okabe-Ito, short to long wavelength; the engine uses the same colors.
 const COLORS = ['#0072B2', '#56B4E9', '#009E73', '#F0E442', '#E69F00', '#D55E00'];
@@ -11,8 +11,6 @@ const MODES = ['epoch', 'diff', 'sum'];
 const DOORS = { learn: 'explore', discover: 'compare', analyze: 'analyze' };
 // Fields for the challenge: fast movers. Only the built-in targets are
 // modeled by the simulation, so the others need real data.
-const CHALLENGE_SIM = ['barnard', 'eps-indi-b', 'wise0855'];
-const CHALLENGE_REAL = [...CHALLENGE_SIM, 'kapteyn', 'groombridge1830', 'wolf359', 'lalande21185', '61cyg', 'proxima', 'luhman16', 'teegarden'];
 // Sesame mirrors that answer with CORS headers; the main CDS URL redirects
 // without them, so the browser cannot follow it.
 const SESAME = [
@@ -42,6 +40,8 @@ const state = {
   fov: 6,
   frame: null,
   selection: null,
+  // What the engine made of the selection's spectrum (spherex/espectro.py).
+  analysis: null,
   hover: null,
   playing: false,
   speed: 1,
@@ -53,10 +53,14 @@ const state = {
   // Wavelength of each loaded frame, [channel][visit], for season stepping.
   lambda: [],
   status: {},
-  // Welcome door shown, guided tour { id, step } and challenge { obj, solved, revealed }.
+  // Welcome door shown, guided tour { id, step, done, quiz } and mission
+  // { mission, obj, done, answer, solved, revealed }.
   door: 'learn',
   tour: null,
   challenge: null,
+  // Visits and channels shown since the field was opened, for the tasks.
+  seen: { visits: new Set(), bands: new Set() },
+  score: { ok: 0, n: 0 },
 };
 
 // Bilingual text from catalog.js.
@@ -93,8 +97,10 @@ const handlers = {
     state.view.visit = Math.min(state.view.visit, f.visits.length - 1);
     if (state.view.ref >= f.visits.length) state.view.ref = -1;
     state.selection = null;
+    state.analysis = null;
     state.frame = null;
-    $('welcome').hidden = true;
+    resetSeen();
+    showWelcome(false);
     renderBanner();
     renderTitle();
     renderChannels();
@@ -103,6 +109,7 @@ const handlers = {
     renderSelection();
     renderTour();
     renderChallenge();
+    renderNow();
     snapVisit();
     sendView();
     if (state.embed) $('embed-open').href = shareURL().replace(/[?&]embed=1/, '');
@@ -126,18 +133,36 @@ const handlers = {
   },
   frame(fr) {
     state.frame = fr;
+    if (fr.loaded && state.field) {
+      state.seen.visits.add(fr.visit);
+      state.seen.bands.add(fr.band);
+    }
     renderFrame();
     renderTimeline();
+    updateGuides();
+    schedule('now', renderNow);
   },
   hover(h) {
     state.hover = h;
     renderHover();
   },
   select(sel) {
+    // A click somewhere else is a new source: its old interpretation goes.
+    const prev = state.selection;
+    if (!sel || !prev || angularSep(prev, sel) > 3) state.analysis = null;
     state.selection = sel;
     renderSelection();
     renderTimeline();
     if (sel && state.challenge) checkChallenge(sel);
+    updateGuides();
+    renderNow();
+  },
+  analysis({ n, result }) {
+    if (!state.selection) return;
+    state.analysis = { n, ...result };
+    renderSpectrum();
+    renderInterp();
+    renderBands();
   },
   status(st) {
     state.status[st.stage] = st;
@@ -177,6 +202,7 @@ function sendView() {
   if (!state.field) return;
   engine()?.view(JSON.stringify(effectiveView()));
   renderControls();
+  updateGuides();
   schedule('url', writeURL);
 }
 
@@ -239,6 +265,7 @@ function setPlaying(p) {
     acc = 0;
     requestAnimationFrame(tick);
   }
+  schedule('now', renderNow);
 }
 
 // nextVisit steps through visits that have an image in the current channel.
@@ -308,7 +335,7 @@ function open(req, opts = {}) {
   if (opts.view) Object.assign(state.view, opts.view);
   setPlaying(false);
   if (!state.ready) return;
-  $('welcome').hidden = true;
+  showWelcome(false);
   state.field = null;
   state.status = {};
   renderArchiveStatus();
@@ -523,7 +550,7 @@ function startFromURL() {
   } else if (state.embed) {
     openTarget(state.targets[0], { view, autoplay });
   } else {
-    $('welcome').hidden = false;
+    showWelcome(true);
     renderTitle();
   }
 }
@@ -597,6 +624,7 @@ function renderDatalist() {
 function renderWelcome() {
   renderCards();
   renderTours();
+  renderMissions();
   renderCategories();
   renderObjectsTable();
   setDoor(state.door);
@@ -682,10 +710,181 @@ function renderObjectsTable() {
   }));
 }
 
+// The player, the timeline and the side panel only make sense once a field
+// is open, so the start screen hides them (body.home in style.css).
+function showWelcome(show) {
+  $('welcome').hidden = !show;
+  document.body.classList.toggle('home', show);
+}
+
 function goWelcome(door) {
   setPlaying(false);
   if (door) setDoor(door);
-  $('welcome').hidden = false;
+  showWelcome(true);
+}
+
+// ---------- Guides: tasks shared by tours and missions ----------
+//
+// A step or a mission lists tasks ({ do: 'play' | 'band' | 'select' |
+// 'catalog' }). Each one checks itself off as the user does it, stays done
+// for the rest of the step, and the first pending one gets a pulsing outline
+// on the control to use (.coach).
+
+// A click this close to the field center (arcsec, ~7 px) counts as clicking
+// the object of the step, which every field is centered on.
+const CENTER_TOL = 45;
+
+function resetSeen() {
+  state.seen = { visits: new Set(), bands: new Set() };
+}
+
+function nearCenter(sel) {
+  const r = state.request;
+  if (!sel || !r) return false;
+  const cos = Math.cos((r.dec * Math.PI) / 180);
+  let dra = sel.ra - r.ra;
+  if (dra > 180) dra -= 360;
+  if (dra < -180) dra += 360;
+  return Math.hypot(dra * cos, sel.dec - r.dec) * 3600 <= CENTER_TOL;
+}
+
+function taskDone(task) {
+  switch (task.do) {
+    case 'play': {
+      // Playing one visit per season shows as many frames as there are seasons.
+      const seasons = new Set(state.field?.visits.map((v) => v.season)).size;
+      return state.seen.visits.size >= Math.max(2, Math.min(3, seasons));
+    }
+    case 'band': return state.seen.bands.has(task.band);
+    case 'select': return !!state.selection && (task.anywhere || nearCenter(state.selection));
+    case 'catalog': return !!state.view.catalog;
+    default: return false;
+  }
+}
+
+function taskLabel(task) {
+  if (task.do === 'band') return t('task.band', { n: task.band + 1, range: fmtRange(...CHANNEL_RANGES[task.band]) });
+  if (task.do === 'select') return t(task.anywhere ? 'task.select.anywhere' : 'task.select');
+  return t(`task.${task.do}`);
+}
+
+function setCatalog(on) {
+  state.view.catalog = on;
+  $('catalog').checked = on;
+  sendView();
+}
+
+// One-click shortcuts next to a pending task (tours only: missions leave the
+// doing to the user).
+function taskHelper(task) {
+  const mk = (label, run) => {
+    const b = Object.assign(document.createElement('button'), { className: 'helper', textContent: label, type: 'button' });
+    b.addEventListener('click', run);
+    return b;
+  };
+  if (task.do === 'play') return mk(t('helper.play'), () => setPlaying(true));
+  if (task.do === 'band') return mk(t('helper.band', { n: task.band + 1 }), () => setBand(task.band));
+  if (task.do === 'catalog') return mk(t('helper.catalog'), () => setCatalog(true));
+  return null;
+}
+
+function coachTarget(task, helper) {
+  if (!task) return null;
+  if (task.do === 'play') return $('play');
+  if (task.do === 'band') return $('channels').children[task.band] ?? null;
+  if (task.do === 'select') return $('viewer');
+  if (task.do === 'catalog') return helper ?? $('catalog').closest('label');
+  return null;
+}
+
+function coach(el) {
+  for (const e of document.querySelectorAll('.coach')) if (e !== el) e.classList.remove('coach');
+  el?.classList.add('coach');
+}
+
+// Draws the checklist; returns the coach target for the first pending task.
+function renderTasks(ul, tasks, done, { helpers = false } = {}) {
+  let target = null;
+  let first = true;
+  ul.replaceChildren(...tasks.map((task, i) => {
+    const li = document.createElement('li');
+    li.className = done[i] ? 'done' : first ? 'current' : '';
+    const mark = Object.assign(document.createElement('span'), { className: 'check', textContent: done[i] ? '✓' : String(i + 1) });
+    mark.setAttribute('aria-hidden', 'true');
+    const text = Object.assign(document.createElement('span'), { className: 'label', textContent: taskLabel(task) });
+    li.append(mark, text);
+    if (done[i]) li.append(Object.assign(document.createElement('span'), { className: 'sr-only', textContent: ' ✓' }));
+    if (!done[i]) {
+      const h = helpers ? taskHelper(task) : null;
+      if (h) li.append(h);
+      if (task.do === 'select' && !task.anywhere && state.selection && !nearCenter(state.selection)) {
+        li.append(Object.assign(document.createElement('span'), { className: 'note', textContent: t('task.select.off') }));
+      }
+      if (first) target = coachTarget(task, h);
+      first = false;
+    }
+    return li;
+  }));
+  return target;
+}
+
+// The active guide: the current tour step or the mission.
+function activeGuide() {
+  const tour = tourOf();
+  if (tour && state.tour.step < tour.steps.length) return { kind: 'tour', tasks: tour.steps[state.tour.step].tasks ?? [], done: state.tour.done };
+  const m = missionOf();
+  if (m && !state.challenge.revealed) return { kind: 'mission', tasks: m.tasks, done: state.challenge.done };
+  return null;
+}
+
+// Called on every frame, selection and view change: checks tasks off and
+// redraws the guide only when something it shows changed.
+let guideSig = '';
+function updateGuides() {
+  const g = activeGuide();
+  let checked = false;
+  if (g) {
+    g.tasks.forEach((task, i) => {
+      if (!g.done[i] && taskDone(task)) checked = g.done[i] = true;
+    });
+  }
+  const sel = state.selection;
+  const sig = JSON.stringify([g?.kind, g?.done, !!sel, sel && nearCenter(sel), sel?.measurements?.length, state.view.band, state.view.catalog, getLang()]);
+  if (sig === guideSig) return;
+  guideSig = sig;
+  if (state.tour) renderTour();
+  if (state.challenge) renderChallenge();
+  // Doing a task often scrolls the side panel (a channel button far down);
+  // bring the guide back so the next task, or the question, is in view.
+  if (checked) $(state.tour ? 'tour' : 'challenge').scrollIntoView({ block: 'start', behavior: reduceMotion ? 'auto' : 'smooth' });
+}
+
+// Multiple-choice question; `chosen` is the picked index (or null).
+function renderQuiz(box, { title, q, options, answer, explain, chosen, onPick, after }) {
+  box.hidden = false;
+  const nodes = [];
+  if (title) nodes.push(Object.assign(document.createElement('p'), { className: 'eyebrow', textContent: title }));
+  nodes.push(Object.assign(document.createElement('p'), { className: 'quiz-q', textContent: q }));
+  const list = document.createElement('div');
+  list.className = 'quiz-options';
+  options.forEach((label, i) => {
+    const b = Object.assign(document.createElement('button'), { type: 'button', textContent: label });
+    if (chosen != null) {
+      b.disabled = true;
+      if (i === answer) b.classList.add('right');
+      else if (i === chosen) b.classList.add('wrong');
+    } else b.addEventListener('click', () => onPick(i));
+    list.append(b);
+  });
+  nodes.push(list);
+  if (chosen != null && explain) {
+    const p = document.createElement('p');
+    p.className = `result ${chosen === answer ? 'good' : 'bad'}`;
+    p.textContent = explain;
+    nodes.push(p);
+  }
+  if (chosen != null && after) nodes.push(after);
+  box.replaceChildren(...nodes);
 }
 
 // ---------- Guided tours ----------
@@ -695,7 +894,7 @@ const tourOf = () => TOURS.find((x) => x.id === state.tour?.id);
 function startTour(id, step = 0) {
   state.challenge = null;
   renderChallenge();
-  state.tour = { id, step };
+  state.tour = { id, step, done: [], quiz: null };
   setLevel('explore');
   showStep();
 }
@@ -703,12 +902,14 @@ function startTour(id, step = 0) {
 function showStep() {
   const tour = tourOf();
   const i = state.tour.step;
+  state.tour.done = (tour.steps[i]?.tasks ?? []).map(() => false);
+  guideSig = '';
   renderTour();
   if (i >= tour.steps.length) return writeURL();
   const st = tour.steps[i];
   const view = { mode: 'epoch', catalog: false, ...st.view, visit: 0, ref: -1 };
   $('catalog').checked = view.catalog;
-  openObject(findObject(st.object), { keepGuides: true, autoplay: !!st.play, view });
+  openObject(findObject(st.object), { keepGuides: true, autoplay: false, view });
 }
 
 function renderTour() {
@@ -720,23 +921,53 @@ function renderTour() {
   const n = tour.steps.length;
   const done = i >= n;
   const st = tour.steps[Math.min(i, n - 1)];
+  const allDone = !done && state.tour.done.every(Boolean);
   $('tour-name').textContent = tr(tour.title);
+  $('tour-progress').replaceChildren(...tour.steps.map((_, k) => Object.assign(document.createElement('li'), {
+    className: k < i ? 'done' : k === i ? 'current' : '',
+  })));
   $('tour-title').textContent = done ? t('tour.done') : tr(st.title);
   $('tour-text').textContent = done ? tr(tour.summary) : tr(st.text);
   $('tour-count').textContent = done ? '' : t('tour.count', { i: i + 1, n });
   $('tour-prev').disabled = i === 0;
-  $('tour-next').textContent = done ? t('tour.more') : i === n - 1 ? t('tour.finish') : t('tour.next');
-  $('tour-actions').replaceChildren(...(done ? [] : st.actions ?? []).map((a) => {
-    const b = Object.assign(document.createElement('button'), { textContent: tr(a.label) });
-    b.style.setProperty('--ch', COLORS[a.band]);
-    b.classList.add('chan-button');
-    b.setAttribute('aria-pressed', state.view.band === a.band);
-    b.addEventListener('click', () => {
-      setBand(a.band);
-      renderTour();
+
+  const tasks = done ? [] : st.tasks ?? [];
+  $('tour-tasks-title').hidden = !tasks.length;
+  const target = renderTasks($('tour-tasks'), tasks, state.tour.done, { helpers: true });
+  const tk = $('tour-takeaway');
+  tk.hidden = !allDone || !st.takeaway;
+  if (!tk.hidden) {
+    const b = Object.assign(document.createElement('b'), { textContent: `${t('tour.takeaway')} ` });
+    tk.replaceChildren(b, document.createTextNode(tr(st.takeaway)));
+  }
+
+  const next = $('tour-next');
+  next.textContent = done ? t('tour.more') : !allDone ? t('tour.skip') : i === n - 1 ? t('tour.finish') : t('tour.next');
+  next.classList.toggle('primary', done || allDone);
+  next.classList.toggle('ghost-next', !done && !allDone);
+
+  const quiz = $('tour-quiz');
+  if (done && tour.quiz) {
+    const go = Object.assign(document.createElement('button'), { className: 'link', textContent: t('tour.discover'), type: 'button' });
+    go.addEventListener('click', () => {
+      endGuides();
+      setLevel(DOORS.discover);
+      goWelcome('discover');
     });
-    return b;
-  }));
+    const chosen = state.tour.quiz;
+    renderQuiz(quiz, {
+      title: t('quiz.title'),
+      q: tr(tour.quiz.q),
+      options: tour.quiz.options.map(tr),
+      answer: tour.quiz.answer,
+      chosen,
+      explain: chosen == null ? '' : `${t(chosen === tour.quiz.answer ? 'quiz.right' : 'quiz.wrong')} ${tr(tour.quiz.explain)}`,
+      onPick: (k) => { state.tour.quiz = k; renderTour(); },
+      after: go,
+    });
+  } else quiz.hidden = true;
+
+  coach(done ? null : allDone ? next : target);
 }
 
 function endGuides() {
@@ -749,34 +980,178 @@ function endGuides() {
     state.challenge = null;
     renderChallenge();
     renderTitle();
+    renderSelection();
   }
+  coach(null);
+  renderNow();
 }
 
-// ---------- Challenge: find what moves ----------
+// ---------- Missions (Discover) ----------
 
-function startChallenge() {
-  const pool = (state.real ? CHALLENGE_REAL : CHALLENGE_SIM).filter((id) => id !== state.challenge?.obj);
-  const id = pool[Math.floor(Math.random() * pool.length)];
+const missionOf = () => (state.challenge ? findMission(state.challenge.mission) : null);
+
+function loadScore() {
+  try {
+    const s = JSON.parse(localStorage.getItem('sky.score'));
+    if (Number.isFinite(s?.ok) && Number.isFinite(s?.n)) return s;
+  } catch { /* no storage: score lives in memory */ }
+  return { ok: 0, n: 0 };
+}
+
+// Counts a mission once, when it is answered or given up.
+function scoreMission(ok) {
+  const c = state.challenge;
+  if (c.scored) return;
+  c.scored = true;
+  state.score.n++;
+  if (ok) state.score.ok++;
+  try { localStorage.setItem('sky.score', JSON.stringify(state.score)); } catch { /* ignore */ }
+  renderScore();
+}
+
+function renderScore() {
+  $('score').textContent = state.score.n ? t('score', state.score) : '';
+}
+
+function renderMissions() {
+  $('missions').replaceChildren(...MISSIONS.map((m) => {
+    const li = document.createElement('li');
+    const b = document.createElement('button');
+    b.className = 'mission-card';
+    b.dataset.mission = m.id;
+    b.innerHTML = '<span class="mission-icon" aria-hidden="true"></span><strong></strong><span class="hook"></span><span class="go"></span>';
+    b.querySelector('.mission-icon').textContent = m.icon;
+    b.querySelector('strong').textContent = tr(m.title);
+    b.querySelector('.hook').textContent = tr(m.summary);
+    b.querySelector('.go').textContent = t('missions.play');
+    b.addEventListener('click', () => startMission(m.id));
+    li.append(b);
+    return li;
+  }));
+  renderScore();
+}
+
+function startMission(id) {
+  const m = findMission(id);
+  const pool = [...m.sim, ...(state.real ? m.real : [])];
+  const others = pool.filter((x) => x !== state.challenge?.obj);
+  const obj = (others.length ? others : pool)[Math.floor(Math.random() * (others.length || pool.length))];
   state.tour = null;
   renderTour();
-  state.challenge = { obj: id, solved: false, revealed: false, message: t('challenge.instructions') };
+  state.challenge = { mission: id, obj, solved: false, revealed: false, done: m.tasks.map(() => false), answer: null, result: '', hinted: false, scored: false };
+  guideSig = '';
   setLevel('compare');
   $('catalog').checked = false;
   renderChallenge();
-  openObject(findObject(id), { keepGuides: true, autoplay: true, view: { mode: 'diff', catalog: false } });
+  openObject(findObject(obj), { keepGuides: true, autoplay: false, view: { ...m.view, catalog: false } });
+}
+
+const median = (xs) => {
+  if (!xs.length) return NaN;
+  const s = [...xs].sort((a, b) => a - b);
+  const k = s.length >> 1;
+  return s.length % 2 ? s[k] : (s[k - 1] + s[k]) / 2;
+};
+
+// Where in the infrared the selected source is brightest, from its own
+// measurements: the median of the good points of each channel. Options whose
+// channels come within 10 % of the peak are all accepted, so a near tie
+// between neighboring channels does not make a right answer wrong. The
+// temperature is the peak of a blackbody in F_ν (λ_peak ≈ 5100 µm·K / T),
+// only an order of magnitude, and a bound when the peak is at an edge.
+function measurePeak(sel, options) {
+  const per = [0, 1, 2, 3, 4, 5].map((c) => {
+    const ms = sel.measurements.filter((x) => x.c === c);
+    const ok = ms.filter((x) => x.ok);
+    return { n: ms.length, ok: ok.length, f: median(ok.map((x) => x.f)), l: median(ok.map((x) => x.l)) };
+  });
+  const measured = per.filter((p) => p.n > 0).length;
+  if (measured < 6) return { wait: measured };
+  if (per.some((p) => p.ok < Math.max(3, p.n / 3))) return { saturated: true };
+  const peak = Math.max(...per.map((p) => p.f));
+  const c = per.findIndex((p) => p.f === peak);
+  const l = per[c].l;
+  const accepted = new Set(options.filter((o) => o.bands.some((b) => per[b].f >= 0.9 * peak)).map((o) => o.id));
+  const bucket = options.find((o) => o.bands.includes(c)).id;
+  const temp = Math.round(5100 / l / 100) * 100;
+  const edge = c === 0 ? 'low' : c === 5 ? 'high' : 'mid';
+  return { c, l, accepted, bucket, why: `${t(`temp.peak.${edge}`, { t: temp, l: l.toFixed(1) })} ${t(`temp.kind.${bucket}`)}` };
+}
+
+// Text of the answer of the rhythm and temperature missions.
+function missionVerdict(ok) {
+  const c = state.challenge;
+  const m = missionOf();
+  const o = findObject(c.obj);
+  const verdict = ok == null ? '' : t(ok ? 'mission.right' : 'mission.wrong');
+  if (m.id === 'rhythm') return t('mission.rhythm.result', { verdict, name: objectName(o), why: t(`rhythm.${o.rhythm}`) }).trim();
+  const pk = c.peak;
+  return t('mission.temperature.result', { verdict, c: pk.c + 1, l: pk.l.toFixed(2), why: pk.why, name: objectName(o) }).trim();
+}
+
+function answerMission(id) {
+  const c = state.challenge;
+  const m = missionOf();
+  c.answer = id;
+  const ok = m.id === 'rhythm' ? id === findObject(c.obj).rhythm : c.peak.accepted.has(id);
+  c.solved = true;
+  c.result = missionVerdict(ok);
+  c.good = ok;
+  scoreMission(ok);
+  renderTitle();
+  renderSelection();
+  renderChallenge();
+  renderNow();
 }
 
 function renderChallenge() {
   const c = state.challenge;
   $('challenge').hidden = !c;
   if (!c) return;
-  $('challenge-text').textContent = c.message;
+  const m = missionOf();
+  $('challenge-title').textContent = tr(m.title);
+  $('challenge-text').textContent = t(`mission.${m.id}.instructions`);
+  const target = c.solved || c.revealed ? null : renderTasks($('challenge-tasks'), m.tasks, c.done);
+  if (c.solved || c.revealed) renderTasks($('challenge-tasks'), m.tasks, m.tasks.map(() => true));
+  const allDone = c.done.every(Boolean);
+
+  // Question, once the tasks are done and the object in the middle is selected.
+  const q = $('challenge-question');
+  q.hidden = true;
+  if (m.options && allDone && !c.revealed) {
+    const sel = state.selection;
+    let wait = '';
+    if (!c.solved) {
+      if (!nearCenter(sel)) wait = t('task.select');
+      else if (m.id === 'temperature') {
+        c.peak = measurePeak(sel, m.options);
+        if (c.peak.wait != null) wait = t('mission.wait', { n: c.peak.wait });
+        else if (c.peak.saturated) wait = t('mission.saturated');
+      }
+    }
+    if (wait) {
+      q.hidden = false;
+      q.replaceChildren(Object.assign(document.createElement('p'), { className: 'hint', textContent: wait }));
+    } else {
+      const ids = m.options.map((o) => o.id);
+      const answer = m.id === 'rhythm' ? ids.indexOf(findObject(c.obj).rhythm) : ids.indexOf(c.answer != null && c.peak.accepted.has(c.answer) ? c.answer : c.peak.bucket);
+      renderQuiz(q, {
+        q: tr(m.question),
+        options: m.options.map((o) => tr(o.label)),
+        answer,
+        chosen: c.answer == null ? null : ids.indexOf(c.answer),
+        onPick: (k) => answerMission(ids[k]),
+      });
+    }
+  }
+
   const res = $('challenge-result');
   res.hidden = !c.result;
   res.textContent = c.result || '';
-  res.className = `result ${c.solved ? 'good' : ''}`;
-  $('challenge-hint').disabled = c.solved || c.revealed || state.view.catalog;
+  res.className = `result ${c.solved ? (c.good === false ? 'bad' : 'good') : ''}`;
+  $('challenge-hint').disabled = c.solved || c.revealed || c.hinted;
   $('challenge-giveup').disabled = c.solved || c.revealed;
+  coach(target);
 }
 
 function catalogAgreement(sel) {
@@ -786,14 +1161,18 @@ function catalogAgreement(sel) {
   return { agree: sel.moving && dist < 3 * err + 0.3, dist };
 }
 
+// The "find what moves" mission answers on every click.
 function checkChallenge(sel) {
   const c = state.challenge;
-  if (c.solved || c.revealed) return;
+  if (c.mission !== 'moving' || c.solved || c.revealed) return;
   const speed = Math.hypot(sel.pmra, sel.pmdec).toFixed(1);
   if (sel.moving && sel.catalog && catalogAgreement(sel).agree) {
     c.solved = true;
+    c.good = true;
     c.result = t('challenge.found', { name: sel.catalog.name, v: speed });
+    scoreMission(true);
     renderTitle();
+    renderNow();
   } else if (sel.moving) {
     c.result = t('challenge.unconfirmed', { v: speed });
   } else {
@@ -803,22 +1182,77 @@ function checkChallenge(sel) {
 }
 
 function challengeHint() {
-  state.view.catalog = true;
-  $('catalog').checked = true;
-  sendView();
-  state.challenge.result = t('challenge.hinted');
+  const c = state.challenge;
+  c.hinted = true;
+  if (c.mission === 'moving') {
+    setCatalog(true);
+    c.result = t('challenge.hinted');
+  } else c.result = t(`mission.${c.mission}.hint`);
   renderChallenge();
 }
 
 function challengeGiveUp() {
   const c = state.challenge;
   c.revealed = true;
-  state.view.catalog = true;
-  $('catalog').checked = true;
-  sendView();
-  c.result = t('challenge.revealed', { name: objectName(findObject(c.obj)) });
+  c.good = false;
+  if (c.mission === 'moving') {
+    setCatalog(true);
+    c.result = t('challenge.revealed', { name: objectName(findObject(c.obj)) });
+  } else if (c.mission === 'temperature' && !(c.peak?.c >= 0)) {
+    c.result = t('challenge.revealed.plain', { name: objectName(findObject(c.obj)) });
+  } else c.result = missionVerdict(null);
+  scoreMission(false);
   renderTitle();
+  renderSelection();
   renderChallenge();
+  renderNow();
+}
+
+// ---------- What you are seeing ----------
+
+function currentObject() {
+  const name = state.field?.name || state.request?.name;
+  return name ? OBJECTS.find((o) => objectName(o) === name) : null;
+}
+
+function renderNow() {
+  const r = state.request;
+  const f = state.field;
+  if (!r) return;
+  const c = state.challenge;
+  const mystery = c && !c.solved && !c.revealed;
+  const what = $('now-what');
+  if (mystery) what.textContent = t('now.mystery');
+  else {
+    const name = f?.name || r.name;
+    const o = currentObject();
+    const tg = state.targets.find((x) => x.name === name);
+    const desc = o ? tr(o.desc) : tg ? t(`target.${tg.id}.hook`) : '';
+    if (name) {
+      what.replaceChildren(Object.assign(document.createElement('strong'), { textContent: name }), document.createTextNode(desc ? ` — ${desc}` : ''));
+    } else what.textContent = t('now.region', { coords: `${formatRA(r.ra)} ${formatDec(r.dec)}` });
+  }
+
+  const v = state.view;
+  const rows = [];
+  if (f) {
+    const ch = f.channels[v.band];
+    rows.push(['now.color', t('now.color.value', { n: v.band + 1, range: fmtRange(ch.lo, ch.hi), what: t(`channel.${v.band + 1}`) })]);
+    const vis = f.visits[v.visit];
+    rows.push(['now.date', t('now.date.value', { n: v.visit + 1, total: f.visits.length, date: fmtDate(vis.date) })]);
+    rows.push(['now.mode', t(`now.mode.${effectiveView().mode}`)]);
+  } else rows.push(['now.date', t('now.loading')]);
+  fillFacts($('now-facts'), rows);
+
+  // The next step, when no tour or mission is already saying it.
+  const next = $('now-next');
+  const guided = !!(state.tour || state.challenge);
+  next.hidden = guided || !f;
+  if (!next.hidden) {
+    next.textContent = state.seen.visits.size < 2 && !state.playing ? t('now.next.play')
+      : !state.selection ? t('now.next.select')
+        : t(state.level === 'explore' ? 'now.next.measured.explore' : 'now.next.measured');
+  }
 }
 
 function renderTitle() {
@@ -833,7 +1267,7 @@ function renderTitle() {
     ? t('challenge.mystery')
     : state.field?.name || r.name || `${formatRA(r.ra)} ${formatDec(r.dec)}`;
   $('field-coords').textContent = `${formatRA(r.ra)} ${formatDec(r.dec)} · ${state.fov}′ · 1 px = ${PIX}″`;
-  document.title = `${$('field-name').textContent} · SPHEREx Sky Timeline`;
+  document.title = `${$('field-name').textContent} · Tifis`;
 }
 
 function renderChannels() {
@@ -1128,25 +1562,225 @@ function renderSelection() {
   if (flagged > inBand.length / 3) rows.push(['motion.caveat', t('motion.saturated', { n: flagged, total: inBand.length })]);
   fillFacts($('motion'), rows);
   renderBands();
+  renderInterp();
 }
 
 // The bands drawn on the spectrum, explained; those the measurements do not
-// reach are marked.
+// reach are marked, and those found in the selected source say so.
 function renderBands() {
   const sel = state.selection;
+  const found = analysisFeatures();
   $('bands').replaceChildren(...BANDS.map((b) => {
     const li = document.createElement('li');
     li.innerHTML = '<b></b> <span class="mono"></span> <span></span>';
     li.querySelector('b').textContent = b.label;
-    li.querySelector('.mono').textContent = `${b.l.toFixed(2)} µm`;
+    li.querySelector('.mono').textContent = b.line ? `${b.l.toFixed(3)} µm` : `${b.lo.toFixed(2)}–${b.hi.toFixed(2)} µm`;
     li.querySelector('span:last-child').textContent = tr(b.desc);
-    const covered = sel?.measurements.some((m) => m.ok && Math.abs(m.l - b.l) <= b.w / 2 + 0.02);
+    const covered = sel?.measurements.some((m) => m.ok && m.l >= b.lo - 0.02 && m.l <= b.hi + 0.02);
     if (sel && !covered) {
       li.classList.add('nodata');
       li.title = t('bands.nodata');
     }
+    const f = found[b.id];
+    if (f && HIT.has(f.estado)) {
+      li.classList.add('hit');
+      li.append(Object.assign(document.createElement('span'), { className: 'tag', textContent: featureVerdict(f) }));
+    }
+    if (b.confuses) {
+      li.append(Object.assign(document.createElement('small'), { textContent: tr(b.confuses) }));
+    }
     return li;
   }));
+}
+
+// ---------- Interpretation of the spectrum ----------
+
+// Feature states worth showing in the summary, strongest first.
+const HIT = new Set(['detectada', 'compatible', 'indicio']);
+const STATE_ORDER = { detectada: 0, compatible: 1, indicio: 2, opuesta: 3, no: 4 };
+
+// During a mission the interpretation would give the answer away.
+const interpHidden = () => !!(state.challenge && !state.challenge.solved && !state.challenge.revealed);
+
+function currentAnalysis() {
+  const a = state.analysis;
+  return a && !a.error && state.selection && !interpHidden() ? a : null;
+}
+
+function analysisFeatures() {
+  const a = currentAnalysis();
+  return Object.fromEntries((a?.firmas ?? []).map((f) => [f.id, f]));
+}
+
+const fmtZ = (z) => (Math.abs(z) >= 10 ? Math.abs(z).toFixed(0) : Math.abs(z).toFixed(1));
+// Rule ids can carry the sign they need ("co2_427:abs").
+const featName = (id) => {
+  const base = id.split(':')[0];
+  return findBand(base)?.label ?? (tr(PSEUDO[base]) || base);
+};
+const featLabel = (id) => {
+  const b = findBand(id);
+  if (!b) return tr(PSEUDO[id]) || id;
+  return `${b.label} ${b.line ? b.l.toFixed(2) : b.l.toFixed(1)} µm`;
+};
+
+function featureVerdict(f) {
+  const kind = t(f.observado === 'emisión' ? 'interp.emi' : 'interp.abs');
+  return `${t(`interp.state.${f.estado}`)} · ${kind} · ${fmtZ(f.z)}σ`;
+}
+
+function renderInterp() {
+  const box = $('interp');
+  const body = $('interp-body');
+  const sel = state.selection;
+  box.hidden = !sel;
+  if (!sel) return;
+  if (interpHidden()) {
+    body.replaceChildren(el('p', 'hint', t('interp.hidden')));
+    return;
+  }
+  const a = state.analysis;
+  if (!a) {
+    body.replaceChildren(el('p', 'hint', t('interp.pending')));
+    return;
+  }
+  if (a.error) {
+    body.replaceChildren(el('p', 'hint', tr(a.error)));
+    return;
+  }
+  const out = [];
+
+  // 1. What it looks like: ranked families, not a verdict.
+  const classes = (a.clasificacion ?? []).filter((c) => c.puntaje >= 0.15).slice(0, 3);
+  if (classes.length) {
+    const ol = el('ol', 'classes');
+    classes.forEach((c, i) => {
+      const li = el('li', i === 0 ? 'top' : '');
+      const head = el('div', 'class-head');
+      head.append(el('b', '', tr(c.nombre)), el('span', 'mono', `${Math.round(c.puntaje * 100)} %`));
+      const bar = el('div', 'bar');
+      bar.append(Object.assign(el('span'), { style: `width:${Math.round(c.puntaje * 100)}%` }));
+      li.append(head, bar);
+      const why = [tr(c.desc)];
+      if (c.por.length) why.push(t('interp.because', { list: c.por.map(featName).join(', ') }));
+      if (c.contra?.length) why.push(t('interp.against', { list: c.contra.map(featName).join(', ') }));
+      li.append(el('p', 'hint', why.join(' ')));
+      ol.append(li);
+    });
+    out.push(el('h4', '', t('interp.best')), ol);
+  } else {
+    out.push(el('p', 'hint', t('interp.none')));
+  }
+
+  // 2. Continuum.
+  const facts = [['interp.temp', a.T_rango_K
+    ? t('interp.temp.range', { lo: Math.round(a.T_rango_K[0]), hi: Math.round(a.T_rango_K[1]) })
+    : t('interp.temp.value', { t: Math.round(a.T_color_K), e: Math.round(a.T_err_K), p: a.pico_wien_um })]];
+  if (a.estrella_disco) facts.push(['interp.model', t('interp.disk', { s: Math.round(a.estrella_disco.T_estrella_K), d: Math.round(a.estrella_disco.T_disco_K) })]);
+  if (a.exceso_ir && a.exceso_ir.z >= 3) facts.push(['interp.excess', t('interp.excess.value', { r: a.exceso_ir.cociente.toFixed(2), z: fmtZ(a.exceso_ir.z) })]);
+  const dl = el('dl', 'facts');
+  for (const [k, v] of facts) dl.append(el('dt', '', t(k)), el('dd', '', v));
+  out.push(dl);
+
+  // 3. Features found.
+  const hits = (a.firmas ?? []).filter((f) => HIT.has(f.estado))
+    .sort((x, y) => STATE_ORDER[x.estado] - STATE_ORDER[y.estado] || Math.abs(y.z) - Math.abs(x.z));
+  out.push(el('h4', '', t('interp.features')));
+  if (hits.length) {
+    const ul = el('ul', 'found');
+    for (const f of hits) {
+      const b = findBand(f.id);
+      const li = el('li', f.estado);
+      li.append(el('b', '', featLabel(f.id)), el('span', '', ` ${featureVerdict(f)}`));
+      if (b?.confuses) li.append(el('small', '', tr(b.confuses)));
+      ul.append(li);
+    }
+    out.push(ul);
+  } else {
+    out.push(el('p', 'hint', t('interp.nofeatures')));
+  }
+
+  // 4. Change over time, season by season.
+  if (a.cambios?.length) {
+    out.push(el('h4', '', t('interp.seasons')));
+    const ul = el('ul', 'seasons');
+    for (const c of a.cambios) {
+      const parts = [];
+      if (c.T_cambia) parts.push(t('interp.season.dT', { d: (c.dT_K > 0 ? '+' : '') + Math.round(c.dT_K), e: Math.round(c.dT_err_K) }));
+      for (const [k, v] of Object.entries(c.dmag ?? {})) {
+        if (Math.abs(v.dmag) > 3 * v.err && Math.abs(v.dmag) > 0.05) {
+          parts.push(t(v.dmag > 0 ? 'interp.season.fainter' : 'interp.season.brighter', { v: Math.abs(v.dmag).toFixed(2), l: k.replace('um', ' µm') }));
+        }
+      }
+      if (c.cambios.length) parts.push(t('interp.season.feats', { list: c.cambios.map((x) => featName(x.id)).join(', ') }));
+      const li = el('li', parts.length ? 'changed' : '');
+      li.append(el('b', '', t('interp.season.pair', { a: c.temporadas[0] + 1, b: c.temporadas[1] + 1 })),
+        el('span', '', ` ${parts.length ? parts.join(' · ') : t('interp.season.nochange')}`));
+      ul.append(li);
+    }
+    out.push(ul);
+  }
+
+  // 5. Limits: warnings first, then notes.
+  const notes = [...(a.avisos ?? []).map((m) => ['warn', m]), ...(a.notas ?? []).map((m) => ['note', m])];
+  if (notes.length) {
+    const ul = el('ul', 'notes');
+    for (const [k, m] of notes) ul.append(el('li', k, tr(m)));
+    out.push(ul);
+  }
+
+  // 6. Every feature, for the Analyze level.
+  if (a.firmas?.length) {
+    const det = Object.assign(document.createElement('details'), { className: 'interp-detail' });
+    det.dataset.minLevel = 'analyze';
+    det.append(el('summary', '', t('interp.detail')));
+    const table = el('table', 'mono');
+    const head = el('tr');
+    for (const k of ['feature', 'depth', 'z', 'state']) head.append(el('th', '', t(`interp.col.${k}`)));
+    table.append(head);
+    for (const f of [...a.firmas].sort((x, y) => x.lo - y.lo)) {
+      const row = el('tr', f.estado);
+      const name = el('td', '', f.etiqueta);
+      name.append(el('small', '', `${f.lo.toFixed(2)}–${f.hi.toFixed(2)} µm · ${t(`interp.method.${f.metodo}`)}`));
+      row.append(name, el('td', '', `${f.d >= 0 ? '+' : ''}${f.d.toFixed(3)} ± ${f.sigma.toFixed(3)}`),
+        el('td', '', f.z.toFixed(1)), el('td', '', t(`interp.state.${f.estado}`)));
+      table.append(row);
+    }
+    det.append(table, el('p', 'hint', t('interp.legend', { n: a.puntos, c: a.puntos_continuo, chi: a.chi2_reducido })));
+    out.push(det);
+  }
+  body.replaceChildren(...out);
+}
+
+function el(tag, className = '', text) {
+  const e = document.createElement(tag);
+  if (className) e.className = className;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+// Angular distance between two selections, arcsec.
+function angularSep(a, b) {
+  const cos = Math.cos((a.dec * Math.PI) / 180);
+  let dra = a.ra - b.ra;
+  if (dra > 180) dra -= 360;
+  if (dra < -180) dra += 360;
+  return Math.hypot(dra * cos, a.dec - b.dec) * 3600;
+}
+
+function exportAnalysis() {
+  const a = state.analysis;
+  const sel = state.selection;
+  const f = state.field;
+  if (!a || !sel || !f) return;
+  const out = { source: { name: f.name, ra: sel.ra, dec: sel.dec, real: !!f.real }, ...a };
+  const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
+  const link = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(blob),
+    download: `${(f.name || 'spherex').replace(/[^\w.-]+/g, '_')}_analysis.json`,
+  });
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 }
 
 function exportCSV() {
@@ -1158,7 +1792,7 @@ function exportCSV() {
   for (const m of sel.measurements) {
     rows.push([m.c + 1, m.v + 1, f.visits[m.v].date, m.t.toFixed(5), m.l.toFixed(4), m.f.toPrecision(6), m.e.toPrecision(4), m.ok ? 1 : 0]);
   }
-  const head = `# SPHEREx Sky Timeline: ${f.name || 'field'} · RA ${sel.ra.toFixed(6)} Dec ${sel.dec.toFixed(6)} · ${f.real ? 'SPHEREx DR1/QR3 (IRSA)' : 'simulation'}\n`;
+  const head = `# Tifis (SPHEREx): ${f.name || 'field'} · RA ${sel.ra.toFixed(6)} Dec ${sel.dec.toFixed(6)} · ${f.real ? 'SPHEREx DR1/QR3 (IRSA)' : 'simulation'}\n`;
   const blob = new Blob([head + rows.map((r) => r.join(',')).join('\n') + '\n'], { type: 'text/csv' });
   const a = Object.assign(document.createElement('a'), {
     href: URL.createObjectURL(blob),
@@ -1173,7 +1807,7 @@ function renderSpectrum() {
   const svg = $('spectrum');
   const W = svg.clientWidth || 300;
   const H = 200;
-  const m = { l: 40, r: 6, t: 28, b: 30 };
+  const m = { l: 40, r: 6, t: 40, b: 30 };
   // Points whose aperture has too many flagged pixels (saturated cores,
   // cosmic rays) are kept but drawn hollow, like the bad-pixel counts of the
   // SPHEREx Source Discovery Tool.
@@ -1197,14 +1831,35 @@ function renderSpectrum() {
     return m.t + (1 - (vv - lo) / (hi - lo)) * (H - m.t - m.b);
   };
 
-  BANDS.forEach((ft, i) => {
-    const g = svgEl('g', { class: 'feature' });
-    g.append(svgEl('rect', { x: x(ft.l - ft.w / 2), y: m.t, width: x(ft.l + ft.w / 2) - x(ft.l - ft.w / 2), height: H - m.t - m.b }));
-    // Alternate rows so neighbouring bands do not overlap.
-    g.append(svgEl('text', { x: x(ft.l), y: i % 2 ? m.t - 3 : m.t - 13, 'text-anchor': 'middle' }, ft.label));
-    g.append(svgEl('title', {}, `${ft.label} ${ft.l} µm: ${tr(ft.desc)}`));
+  // Bands are shaded and lines (unresolved) drawn as thin marks. Once the
+  // spectrum is interpreted, only what was found keeps its label, highlighted.
+  const found = analysisFeatures();
+  const interpreted = !!currentAnalysis();
+  const rows = [-Infinity, -Infinity, -Infinity];
+  const sorted = [...BANDS].sort((p, q) => (found[q.id] && HIT.has(found[q.id].estado)) - (found[p.id] && HIT.has(found[p.id].estado)) || p.l - q.l);
+  for (const ft of sorted) {
+    const f = found[ft.id];
+    const hit = f && HIT.has(f.estado);
+    const g = svgEl('g', { class: `feature${ft.line ? ' line' : ''}${hit ? ` hit ${f.estado}` : ''}` });
+    if (ft.line) {
+      g.append(svgEl('line', { x1: x(ft.l), x2: x(ft.l), y1: m.t, y2: H - m.b }));
+    } else {
+      g.append(svgEl('rect', { x: x(ft.lo), y: m.t, width: Math.max(1, x(ft.hi) - x(ft.lo)), height: H - m.t - m.b }));
+    }
+    // Labels go in the first of three rows with room, or not at all.
+    if (hit || (!interpreted && !ft.line)) {
+      const cx = x(ft.l);
+      const half = ft.label.length * 3.4 + 3;
+      const row = rows.findIndex((end) => end < cx - half);
+      if (row >= 0) {
+        rows[row] = cx + half;
+        g.append(svgEl('text', { x: cx, y: m.t - 3 - row * 11, 'text-anchor': 'middle' }, ft.label));
+      }
+    }
+    const verdict = f ? ` · ${featureVerdict(f)}` : '';
+    g.append(svgEl('title', {}, `${ft.label} ${ft.lo}–${ft.hi} µm${verdict}: ${tr(ft.desc)}`));
     nodes.push(g);
-  });
+  }
   state.field.channels.forEach((c, i) => {
     nodes.push(svgEl('rect', { x: x(c.lo), y: H - m.b + 1, width: x(c.hi) - x(c.lo) - 1, height: 4, fill: COLORS[i] }));
   });
@@ -1229,6 +1884,13 @@ function renderSpectrum() {
     const note = p.ok ? '' : ` · ${t('spectrum.flagged')}`;
     dot.append(svgEl('title', {}, `${p.l.toFixed(3)} µm · ${p.f.toPrecision(4)} ± ${p.e.toPrecision(2)}${unit} · ${fmtDate(state.field.visits[p.v].date)}${note}`));
     nodes.push(dot);
+  }
+  // Fitted continuum (black body, or star + disk), dashed, over the points.
+  const an = currentAnalysis();
+  if (an?.continuo?.length) {
+    const cpts = an.continuo.filter(([, v]) => v !== null && (v > 0 || !log))
+      .map(([l, v]) => `${x(l).toFixed(1)},${clamp(y(v), m.t - 6, H - m.b).toFixed(1)}`);
+    nodes.push(svgEl('polyline', { class: 'continuum', points: cpts.join(' ') }));
   }
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   svg.replaceChildren(...nodes);
@@ -1333,7 +1995,7 @@ function wire() {
 
   $('tint').addEventListener('change', (e) => { state.view.tint = e.target.checked; sendView(); });
   $('flags').addEventListener('change', (e) => { state.view.flags = e.target.checked; sendView(); renderHover(); });
-  $('catalog').addEventListener('change', (e) => { state.view.catalog = e.target.checked; sendView(); });
+  $('catalog').addEventListener('change', (e) => setCatalog(e.target.checked));
   $('spec-log').addEventListener('change', (e) => { state.specLog = e.target.checked; renderSpectrum(); });
   $('ref-set').addEventListener('click', () => { state.view.ref = state.view.visit; sendView(); });
   $('ref-auto').addEventListener('click', () => { state.view.ref = -1; sendView(); });
@@ -1384,12 +2046,17 @@ function wire() {
     showStep();
   });
   $('tour-exit').addEventListener('click', endGuides);
-  $('challenge-start').addEventListener('click', startChallenge);
-  $('challenge-next').addEventListener('click', startChallenge);
+  $('challenge-next').addEventListener('click', () => startMission(state.challenge.mission));
   $('challenge-hint').addEventListener('click', challengeHint);
   $('challenge-giveup').addEventListener('click', challengeGiveUp);
   $('challenge-exit').addEventListener('click', endGuides);
   $('export-csv').addEventListener('click', exportCSV);
+  // The band table comes from the server a moment after the page starts.
+  featuresReady.then(() => {
+    renderBands();
+    if (state.selection) renderSpectrum();
+  });
+  $('export-analysis').addEventListener('click', exportAnalysis);
 
   $('share').addEventListener('click', () => copy(shareURL(), t('share.copied')).then(() => {
     toast(t('share.copied'), {
@@ -1403,9 +2070,11 @@ function wire() {
     $('lang').setAttribute('aria-label', getLang() === 'es' ? 'English' : 'Español');
     renderWelcome();
     renderTour();
-    if (state.challenge && !state.challenge.result) state.challenge.message = t('challenge.instructions');
+    guideSig = '';
     renderChallenge();
+    renderNow();
     renderBands();
+    renderInterp();
     renderDatalist();
     renderTitle();
     renderChannels();
@@ -1527,13 +2196,14 @@ $('lang').textContent = getLang() === 'es' ? 'EN' : 'ES';
 renderChannels();
 renderControls();
 renderFovCost();
+state.score = loadScore();
 wire();
 const archiveAvailable = detectArchive();
 archiveAvailable.then((real) => {
   state.real = real;
   renderBanner();
 });
-if (!['ra', 'target', 'embed', 'tour'].some((k) => params.has(k))) $('welcome').hidden = false;
+if (!['ra', 'target', 'embed', 'tour'].some((k) => params.has(k))) showWelcome(true);
 start().catch((err) => {
   console.error(err);
   toast(String(err));

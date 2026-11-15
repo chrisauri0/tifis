@@ -1,4 +1,4 @@
-"""SPHEREx Sky Timeline: a player for the SPHEREx infrared sky (NASA Space Apps 2026).
+"""Tifis: a player for the SPHEREx infrared sky (NASA Space Apps 2026).
 
 The package is organised like the original Go code it replaces:
 

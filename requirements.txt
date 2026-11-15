@@ -1,0 +1,2 @@
+# Lo único que necesita el servidor (igual que pyproject.toml). Lo usa Render.
+numpy>=1.22

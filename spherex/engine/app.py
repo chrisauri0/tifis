@@ -22,7 +22,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Callable
 
-from .. import sky
+from .. import espectro, sky
 from ..num import go_round
 from ..proxy import BadRequest, Proxy
 from .compose import Stretch, ViewState, compose, image_event, overlay
@@ -175,6 +175,9 @@ class App:
         self.dirty = False
         self.sel_dirty = False
         self.sel_timer = 0.0
+        # The spectrum analysis of the selection runs one at a time.
+        self._analysis_busy = False
+        self._analysis_again = False
 
         self._queue: collections.deque[Callable[[], None]] = collections.deque()
         self._wake = threading.Event()
@@ -573,4 +576,42 @@ class App:
                 ev["catalog"] = {"name": src.name or "Gaia DR3", "pmra": src.pmra / 1000, "pmdec": src.pmdec / 1000}
         self.emit("select", ev)
         self._emit_overlay()
+        self._analyze_selection()
+
+    def _analyze_selection(self) -> None:
+        """Interpret the spectrum of the selection off the engine thread (it
+        takes up to a few hundred ms) and send it as an `analysis` event. While
+        one runs, newer measurements wait and only the latest is analyzed."""
+        f, s = self.field, self.sel
+        if f is None or s is None:
+            return
+        if self._analysis_busy:
+            self._analysis_again = True
+            return
+        self._analysis_busy = True
+        gen = self.gen
+        ms = [dict(m.to_json(), s=f.visits[m.visit].season) for m in s.measurements]
+
+        def work():
+            try:
+                res = espectro.to_json(espectro.analyze_seasons(ms))
+            except Exception:
+                log.exception("spectrum analysis failed")
+                res = {"error": {"id": "crash", "es": "El análisis del espectro falló.",
+                                 "en": "The spectrum analysis failed."}}
+
+            def done():
+                self._analysis_busy = False
+                if gen == self.gen and self.sel is s:
+                    self.emit("analysis", {"n": len(ms), "result": res})
+                if self._analysis_again:
+                    self._analysis_again = False
+                    self._analyze_selection()
+
+            self.post(done)
+
+        try:
+            self._pool.submit(work)
+        except RuntimeError:  # closing
+            self._analysis_busy = False
 

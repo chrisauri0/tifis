@@ -86,6 +86,11 @@ def test_simulation_session():
         assert status == 200 and json.loads(body)["ok"] is False
         assert get(base + "/")[0] == 200 and get(base + "/engine.js")[0] == 200
         assert get(base + "/api/visits?ra=1&dec=1")[0] == 502
+        status, _, body = get(base + "/api/features")
+        feats = json.loads(body)
+        assert status == 200 and {"features", "rules", "resolution"} <= feats.keys()
+        bra = next(f for f in feats["features"] if f["id"] == "bra")
+        assert bra["kind"] == "emi" and bra["line"] and bra["lo"] < 4.051 < bra["hi"]
         c = Client(base)
         ready = c.wait(lambda k, d: k == "ready")
         barnard = next(t for t in ready["targets"] if t["id"] == "barnard")
@@ -103,6 +108,11 @@ def test_simulation_session():
         sel = c.wait(lambda k, d: k == "select" and d)
         assert sel["moving"] and sel["catalog"]["name"] == "Barnard's Star"
         assert abs(sel["pmdec"] - 10.36) < 0.8 and abs(sel["pmra"] + 0.8) < 0.8
+        # The spectrum is interpreted off the engine thread and sent apart.
+        an = c.wait(lambda k, d: k == "analysis" and d["n"] == len(sel["measurements"]))["result"]
+        assert abs(an["T_color_K"] - 3200) < 150
+        assert an["clasificacion"][0]["id"] == "star"
+        assert an["temporadas"] and "cambios" in an
         c.cmd("clearSelection")
         c.wait(lambda k, d: k == "select" and d is None)
         # Bad commands are refused without hurting the session.

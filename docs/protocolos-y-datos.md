@@ -1,6 +1,6 @@
 # Protocolos, transferencia de datos y arquitectura
 
-Este documento describe cómo SPHEREx Sky Timeline obtiene, transporta, guarda y procesa los datos: qué servicios consulta, con qué protocolos, en qué formatos, cómo se reparten las peticiones y qué pasa cuando algo falla. Las operaciones numéricas (coordenadas, reproyección, fotometría, HEALPix…) están explicadas paso a paso, con código Python equivalente, en el notebook [`operaciones.ipynb`](operaciones.ipynb).
+Este documento describe cómo Tifis obtiene, transporta, guarda y procesa los datos: qué servicios consulta, con qué protocolos, en qué formatos, cómo se reparten las peticiones y qué pasa cuando algo falla. Las operaciones numéricas (coordenadas, reproyección, fotometría, HEALPix…) están explicadas paso a paso, con código Python equivalente, en el notebook [`operaciones.ipynb`](operaciones.ipynb).
 
 ## 1. Arquitectura
 
@@ -212,7 +212,7 @@ Si falla, prueba con `vizier.idia.ac.za` (cada intento tiene 5 s de límite). La
 
 El motor corre en el servidor, uno por pestaña. Cada pestaña genera un identificador de sesión al azar y abre un flujo de eventos (`GET /api/engine/events?session=…`, Server-Sent Events); al conectarse por primera vez el servidor crea su motor y le manda `ready`. Los comandos van por `POST /api/engine/command` con `{"session", "cmd", "args"}`, uno detrás de otro y en orden (`ui/engine.js`); de `hover` solo se manda la última posición pendiente.
 
-Dentro del servidor, los comandos y los resultados de las descargas no tocan el estado del motor directamente: encolan una función (`App.post`) que el hilo del motor ejecuta en orden. Si el flujo de eventos se corta, los eventos esperan en la cola y llegan al reconectar; de `image`, `overlay`, `frame` y `hover` solo se manda el más reciente. Un motor sin flujo conectado durante 60 s se cierra.
+Dentro del servidor, los comandos y los resultados de las descargas no tocan el estado del motor directamente: encolan una función (`App.post`) que el hilo del motor ejecuta en orden. Si el flujo de eventos se corta, los eventos esperan en la cola y llegan al reconectar; de `image`, `overlay`, `frame`, `hover` y `analysis` solo se manda el más reciente. Un motor sin flujo conectado durante 60 s se cierra.
 
 `ui/engine.js` mantiene la misma API que tenía el motor en WebAssembly, así que `ui/app.js` no cambió:
 
@@ -240,6 +240,7 @@ El visor manda además `select {x, y}` al hacer clic (sin arrastrar) y `hover {x
 | `frame` | La imagen mostrada: fecha, λ, referencia usada, archivo, fondo, ruido, píxeles marcados y número de imágenes apiladas. |
 | `hover` | Píxel bajo el cursor: coordenadas, valor y banderas. |
 | `select` | Fuente seleccionada: posición, movimiento propio con errores, trayectoria, todas las medidas (canal, visita, λ, flujo, error, fiable) y la fuente de catálogo que coincide. |
+| `analysis` | `{n, result}`: lo que `spherex/espectro.py` dice del espectro de la selección (continuo, firmas con significancia, clasificación, temporadas, avisos). Se calcula en un hilo aparte después de cada `select`; `n` es el número de medidas analizadas. Ver [`espectro.md`](espectro.md). |
 
 Dos eventos más los consume el visor y no llegan a `skyUI`:
 
@@ -259,6 +260,7 @@ Todas las respuestas de `/api/*` llevan `Access-Control-Allow-Origin: *`. Los er
 | `GET /api/cutout` | `path` (ruta del archivo en el archivo de IRSA), `ra`, `dec`, `size` (≤ 0.3°) | FITS (`application/fits`) sin `EPSF` | Permanente en disco; `Cache-Control: public, max-age=31536000, immutable` |
 | `GET /api/catalog` | `ra`, `dec` | `{ra, dec, radius: 0.15, sources: [{catalog, name, ra, dec, pmra, pmdec, mjd, mag}], missing?: ["CatWISE2020"]}` | Permanente si está completa; CatWISE tiene su propia entrada |
 | `GET /api/gaia/progress` | `ra`, `dec` | `[{file, fraction, mb}]` de los archivos de Gaia que se están descargando para ese campo | — |
+| `GET /api/features` | — | `{features, rules, pseudo, resolution}`: la tabla de firmas espectrales y las reglas de clasificación de `spherex/features.py`. La interfaz dibuja las bandas con ella. Funciona también con `--sim`. | `no-cache` |
 | `GET /api/engine/events` | `session` | Flujo SSE de eventos del motor (sección 4) | — |
 | `POST /api/engine/command` | JSON `{session, cmd, args}` | `{}`; 400 si el comando no es válido, 404 si la sesión no existe | — |
 | `GET /…` | — | Archivos de `ui/` | `Cache-Control: no-cache` (un cambio se ve al recargar) |

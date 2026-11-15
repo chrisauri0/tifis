@@ -5,6 +5,7 @@
     GET  /api/cutout?path=&ra=&dec=&size=  cutout without the PSF cube (FITS)
     GET  /api/catalog?ra=&dec=             Gaia DR3 and CatWISE2020 sources nearby (JSON)
     GET  /api/gaia/progress?ra=&dec=       Gaia bulk files being streamed for a field (JSON)
+    GET  /api/features                     spectral features and classification rules (JSON)
     GET  /api/engine/events?session=       engine events for one tab (Server-Sent Events)
     POST /api/engine/command               {"session", "cmd", "args"} from the page
     GET  /...                              files of the web app (ui/)
@@ -29,7 +30,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from . import gaia, irsa
+from . import features, gaia, irsa
 from .engine import App
 from .num import parse_float
 from .proxy import BadRequest, Proxy, UpstreamError
@@ -38,9 +39,9 @@ log = logging.getLogger("spherex")
 
 UI_DIR = Path(__file__).resolve().parent.parent / "ui"
 # Polled by the page every few seconds; logged only when they fail.
-QUIET = frozenset({"/api/health", "/api/gaia/progress"})
+QUIET = frozenset({"/api/health", "/api/gaia/progress", "/api/features"})
 # Coalesced when several are waiting: only the newest of each matters.
-COALESCE = frozenset({"image", "overlay", "frame", "hover"})
+COALESCE = frozenset({"image", "overlay", "frame", "hover", "analysis"})
 SESSION_IDLE = 60.0  # seconds without an event stream before a tab's engine stops
 KEEPALIVE = 15.0
 MAX_COMMAND = 64 * 1024
@@ -230,6 +231,7 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/cutout": self.api_cutout,
             "/api/catalog": self.api_catalog,
             "/api/gaia/progress": self.api_gaia_progress,
+            "/api/features": self.api_features,
             "/api/engine/events": self.api_events,
         }
         if path in routes:
@@ -292,6 +294,10 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json(200, {"ok": False, "sim": True})
         else:
             self.send_json(200, {"ok": True})
+
+    def api_features(self):
+        # The same table the analysis uses, so the page never keeps its own copy.
+        self.send_json(200, features.as_json(), {"Cache-Control": "no-cache"})
 
     def _need_proxy(self) -> Proxy:
         if self.proxy is None:
@@ -387,7 +393,7 @@ def parse_addr(addr: str) -> tuple[str, int]:
 
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="python -m spherex",
-                                description="SPHEREx Sky Timeline: web app, IRSA/Gaia proxy and engine.")
+                                description="Tifis: web app, IRSA/Gaia proxy and engine.")
     p.add_argument("--addr", default=":" + os.environ.get("PORT", "8080"),
                    help="listen address, e.g. :8080 or 127.0.0.1:8080 (default :$PORT or :8080)")
     p.add_argument("--web", type=Path, default=UI_DIR, help="directory with the web app (default: ui/)")
