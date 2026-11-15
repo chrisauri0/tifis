@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spherex-sky-timeline"
+version = "1.0.0"
+description = "Player for the SPHEREx infrared sky (NASA Space Apps 2026, Planet X and SPHEREx)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.22"]
+
+[project.optional-dependencies]
+# astropy cross-checks the WCS in the tests; scipy makes the simulation a bit faster.
+dev = ["pytest", "astropy", "scipy"]
+
+[project.scripts]
+spherex-sky-timeline = "spherex.server:main"
+
+[tool.setuptools.packages.find]
+include = ["spherex*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
